@@ -1,0 +1,5 @@
+config SSTAR_PWM
+	bool "sigauth"
+	help
+	  This enables the command sigauth which only authenticate image
+	  with signature.
