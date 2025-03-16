@@ -64,13 +64,6 @@
 
 #define XIUREAD_MODE                0
 
-#if 0
-
-    //Both read and write via IRUISP
-    #define CONFIG_RIUISP               1
-
-#else
-
 //Select FSP read function
     //#define CONFIG_FSP_READ_RIUOP      1
     //#define CONFIG_FSP_READ_BDMA       1
