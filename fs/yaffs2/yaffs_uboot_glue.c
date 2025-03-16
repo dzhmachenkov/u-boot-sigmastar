@@ -19,8 +19,9 @@
  * This version now uses the ydevconfig mechanism to set up partitions.
  */
 
-#include <common.h>
 #include <div64.h>
+#include <malloc.h>
+#include <linux/printk.h>
 
 #include <config.h>
 #include "nand.h"
@@ -34,10 +35,10 @@
 #else
 #include "malloc.h"
 #endif
+#include <linux/mtd/rawnand.h>
 
 unsigned yaffs_trace_mask = 0x0; /* Disable logging */
 static int yaffs_errno;
-
 
 void yaffs_bug_fn(const char *fn, int n)
 {
@@ -63,7 +64,6 @@ int yaffsfs_GetLastError(void)
 {
 	return yaffs_errno;
 }
-
 
 int yaffsfs_GetError(void)
 {
@@ -97,7 +97,6 @@ void yaffsfs_LocalInitialisation(void)
 {
 	/* No locking used */
 }
-
 
 static const char *yaffs_file_type_str(struct yaffs_stat *stat)
 {
@@ -141,8 +140,6 @@ static const char *yaffs_error_str(void)
 	}
 }
 
-extern nand_info_t nand_info[];
-
 void cmd_yaffs_tracemask(unsigned set, unsigned mask)
 {
 	if (set)
@@ -168,10 +165,14 @@ void cmd_yaffs_devconfig(char *_mp, int flash_dev,
 	char *mp = NULL;
 	struct nand_chip *chip;
 
+	mtd = get_nand_dev_by_index(flash_dev);
+	if (!mtd) {
+		pr_err("\nno NAND devices available\n");
+		return;
+	}
+
 	dev = calloc(1, sizeof(*dev));
 	mp = strdup(_mp);
-
-	mtd = &nand_info[flash_dev];
 
 	if (!dev || !mp) {
 		/* Alloc error */
@@ -192,7 +193,7 @@ void cmd_yaffs_devconfig(char *_mp, int flash_dev,
 		goto err;
 	}
 
-	chip =  mtd->priv;
+	chip =  mtd_to_nand(mtd);
 
 	/* Check for any conflicts */
 	yaffs_dev_rewind();
@@ -260,9 +261,7 @@ void cmd_yaffs_dev_ls(void)
 		dev = yaffs_next_dev();
 		if (!dev)
 			return;
-		flash_dev =
-			((unsigned) dev->driver_context - (unsigned) nand_info)/
-				sizeof(nand_info[0]);
+		flash_dev = nand_mtd_to_devnum(dev->driver_context);
 		printf("%-10s %5d 0x%05x 0x%05x %s",
 			dev->param.name, flash_dev,
 			dev->param.start_block, dev->param.end_block,
@@ -303,7 +302,6 @@ void make_a_file(char *yaffsName, char bval, int sizeOfFile)
 
 	} while (sizeOfFile > 0);
 
-
 	yaffs_close(outh);
 }
 
@@ -324,7 +322,7 @@ void read_a_file(char *fn)
 		i++;
 		if (i > 32) {
 			printf("\n");
-			i = 0;;
+			i = 0;
 		}
 	}
 	printf("\n");
@@ -339,7 +337,6 @@ void cmd_yaffs_mount(char *mp)
 			yaffsfs_GetError(), yaffs_error_str());
 }
 
-
 void cmd_yaffs_umount(char *mp)
 {
 	if (yaffs_unmount(mp) == -1)
@@ -352,12 +349,10 @@ void cmd_yaffs_write_file(char *yaffsName, char bval, int sizeOfFile)
 	make_a_file(yaffsName, bval, sizeOfFile);
 }
 
-
 void cmd_yaffs_read_file(char *fn)
 {
 	read_a_file(fn);
 }
-
 
 void cmd_yaffs_mread_file(char *fn, char *addr)
 {
@@ -379,7 +374,6 @@ void cmd_yaffs_mread_file(char *fn, char *addr)
 	yaffs_close(h);
 }
 
-
 void cmd_yaffs_mwrite_file(char *fn, char *addr, int size)
 {
 	int outh;
@@ -392,7 +386,6 @@ void cmd_yaffs_mwrite_file(char *fn, char *addr, int size)
 
 	yaffs_close(outh);
 }
-
 
 void cmd_yaffs_ls(const char *mountpt, int longlist)
 {
@@ -426,7 +419,6 @@ void cmd_yaffs_ls(const char *mountpt, int longlist)
 
 	yaffs_closedir(d);
 }
-
 
 void cmd_yaffs_mkdir(const char *dir)
 {

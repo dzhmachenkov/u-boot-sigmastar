@@ -1,8 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * (C) Copyright 2000
  * Wolfgang Denk, DENX Software Engineering, wd@denx.de.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /*
@@ -44,7 +43,6 @@ typedef struct mac_driver_entry {
 	__u16	type;		/* OS Type				*/
 } mac_driver_entry_t;
 
-
 #define MAC_PARTITION_MAGIC	0x504d
 
 /* type field value for A/UX or other Unix partitions */
@@ -73,7 +71,7 @@ typedef struct mac_partition {
 	__u32	boot_cksum;	/* boot code checksum			*/
 	uchar	processor[16];	/* Type of Processor			*/
 	__u16	part_pad[188];	/* reserved				*/
-#ifdef CONFIG_ISO_PARTITION
+#if CONFIG_IS_ENABLED(ISO_PARTITION)
 	uchar   iso_dummy[2048];/* Reservere enough room for an ISO partition block to fit */
 #endif
 } mac_partition_t;

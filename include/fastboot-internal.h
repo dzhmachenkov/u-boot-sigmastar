@@ -2,7 +2,6 @@
 
 #ifndef _FASTBOOT_INTERNAL_H_
 #define _FASTBOOT_INTERNAL_H_
-#define PART_NAME_LEN 32
 /**
  * fastboot_buf_addr - base address of the fastboot download buffer
  */
@@ -17,6 +16,13 @@ extern u32 fastboot_buf_size;
  * fastboot_progress_callback - callback executed during long operations
  */
 extern void (*fastboot_progress_callback)(const char *msg);
+
+/**
+ * fastboot_getvar_all() - Writes current variable being listed from "all" to response.
+ *
+ * @response: Pointer to fastboot response buffer
+ */
+void fastboot_getvar_all(char *response);
 
 /**
  * fastboot_getvar() - Writes variable indicated by cmd_parameter to response.

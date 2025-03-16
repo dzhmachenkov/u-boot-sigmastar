@@ -1,7 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright 2014 Freescale Semiconductor, Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __LS1021AQDS_QIXIS_H__
@@ -31,5 +30,7 @@
 #define QIXIS_DDRCLK_133		0x3
 
 #define QIXIS_SRDS1CLK_100		0x0
+
+#define QIXIS_DCU_BRDCFG5		0x55
 
 #endif

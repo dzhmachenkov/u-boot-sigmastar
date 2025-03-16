@@ -1,13 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright 2012 Freescale Semiconductor, Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __VSC_CROSSBAR_H_
-#define __VSC_CROSSBAR_H	1_
+#define __VSC_CROSSBAR_H_
 
-#include <common.h>
 #include <i2c.h>
 #include <errno.h>
 

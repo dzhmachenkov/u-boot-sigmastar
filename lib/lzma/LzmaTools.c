@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Usefuls routines based on the LzmaTest.c file from LZMA SDK 4.65
  *
@@ -5,8 +6,6 @@
  * Luigi 'Comio' Mantellini (luigi.mantellini@idf-hit.com)
  *
  * Copyright (C) 1999-2005 Igor Pavlov
- *
- * SPDX-License-Identifier:	GPL-2.0+ 
  */
 
 /*
@@ -19,7 +18,7 @@
  */
 
 #include <config.h>
-#include <common.h>
+#include <log.h>
 #include <watchdog.h>
 
 #ifdef CONFIG_LZMA
@@ -37,8 +36,8 @@
 static void *SzAlloc(void *p, size_t size) { return malloc(size); }
 static void SzFree(void *p, void *address) { free(address); }
 
-int lzmaBuffToBuffDecompress (unsigned char *outStream, SizeT *uncompressedSize,
-                  unsigned char *inStream,  SizeT  length)
+int lzmaBuffToBuffDecompress(unsigned char *outStream, SizeT *uncompressedSize,
+			     const unsigned char *inStream, SizeT length)
 {
     int res = SZ_ERROR_DATA;
     int i;
@@ -102,9 +101,9 @@ int lzmaBuffToBuffDecompress (unsigned char *outStream, SizeT *uncompressedSize,
         return SZ_ERROR_OUTPUT_EOF;
 
     /* Decompress */
-    outProcessed = outSizeFull;
+    outProcessed = min(outSizeFull, *uncompressedSize);
 
-    WATCHDOG_RESET();
+    schedule();
 
     res = LzmaDecode(
         outStream, &outProcessed,
@@ -112,7 +111,7 @@ int lzmaBuffToBuffDecompress (unsigned char *outStream, SizeT *uncompressedSize,
         inStream, LZMA_PROPS_SIZE, LZMA_FINISH_END, &state, &g_Alloc);
     *uncompressedSize = outProcessed;
 
-    debug("LZMA: Uncompresed ................ 0x%zx\n", outProcessed);
+    debug("LZMA: Uncompressed ............... 0x%zx\n", outProcessed);
 
     if (res != SZ_OK)  {
         return res;

@@ -1,8 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  *  (C) Copyright 2010,2011
  *  NVIDIA Corporation <www.nvidia.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef _FUSE_H_
@@ -19,5 +18,12 @@ struct fuse_regs {
 	u32 reserved3[21];		/* 0x14C - 0x19C: */
 	u32 security_mode;		/* 0x1A0: FUSE_SECURITY_MODE */
 };
+
+/**
+ * Calculate SoC UID
+ *
+ * Return: uid if ok, 0 on error
+ */
+unsigned long long tegra_chip_uid(void);
 
 #endif	/* ifndef _FUSE_H_ */

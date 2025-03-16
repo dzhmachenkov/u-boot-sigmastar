@@ -1,14 +1,14 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright (c) 2013 Google, Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __DM_TEST_H
 #define __DM_TEST_H
 
-#include <dm.h>
-#include <malloc.h>
+#include <linux/types.h>
+
+struct udevice;
 
 /**
  * struct dm_test_cdata - configuration data for test instance
@@ -28,7 +28,7 @@ struct dm_test_pdata {
  *	@dev: Device to operate on
  *	@pingval: Value to ping the device with
  *	@pingret: Returns resulting value from driver
- *	@return 0 if OK, -ve on error
+ *	Return: 0 if OK, -ve on error
  */
 struct test_ops {
 	int (*ping)(struct udevice *dev, int pingval, int *pingret);
@@ -44,6 +44,7 @@ enum {
 	/* For uclass */
 	DM_TEST_OP_POST_BIND,
 	DM_TEST_OP_PRE_UNBIND,
+	DM_TEST_OP_PRE_PROBE,
 	DM_TEST_OP_POST_PROBE,
 	DM_TEST_OP_PRE_REMOVE,
 	DM_TEST_OP_INIT,
@@ -56,6 +57,8 @@ enum {
 enum {
 	DM_TEST_TYPE_FIRST = 0,
 	DM_TEST_TYPE_SECOND,
+
+	DM_TEST_TYPE_COUNT,
 };
 
 /* The number added to the ping total on each probe */
@@ -67,6 +70,14 @@ enum {
 struct dm_test_priv {
 	int ping_total;
 	int op_count[DM_TEST_OP_COUNT];
+	int uclass_flag;
+	int uclass_total;
+	int uclass_postp;
+};
+
+/* struct dm_test_uc_priv - private data for the testdrv uclass */
+struct dm_test_uc_priv {
+	int dummy;
 };
 
 /**
@@ -84,14 +95,42 @@ struct dm_test_uclass_priv {
 };
 
 /**
+ * struct dm_test_uclass_plat - private plat data for test uclass
+ */
+struct dm_test_uclass_plat {
+	char dummy[32];
+};
+
+/**
  * struct dm_test_parent_data - parent's information on each child
  *
  * @sum: Test value used to check parent data works correctly
  * @flag: Used to track calling of parent operations
+ * @uclass_flag: Used to track calling of parent operations by uclass
  */
 struct dm_test_parent_data {
 	int sum;
 	int flag;
+};
+
+/* Test values for test device's uclass platform data */
+enum {
+	TEST_UC_PDATA_INTVAL1 = 2,
+	TEST_UC_PDATA_INTVAL2 = 334,
+	TEST_UC_PDATA_INTVAL3 = 789452,
+};
+
+/**
+ * struct dm_test_uclass_platda - uclass's information on each device
+ *
+ * @intval1: set to TEST_UC_PDATA_INTVAL1 in .post_bind method of test uclass
+ * @intval2: set to TEST_UC_PDATA_INTVAL2 in .post_bind method of test uclass
+ * @intval3: set to TEST_UC_PDATA_INTVAL3 in .post_bind method of test uclass
+ */
+struct dm_test_perdev_uc_pdata {
+	int intval1;
+	int intval2;
+	int intval3;
 };
 
 /*
@@ -100,57 +139,51 @@ struct dm_test_parent_data {
  */
 extern int dm_testdrv_op_count[DM_TEST_OP_COUNT];
 
-extern struct dm_test_state global_test_state;
+extern struct unit_test_state global_dm_test_state;
+
+/* Declare a new driver model test */
+#define DM_TEST(_name, _flags) \
+	UNIT_TEST(_name, UTF_DM | UTF_CONSOLE | (_flags), dm_test)
 
 /*
- * struct dm_test_state - Entire state of dm test system
+ * struct sandbox_sdl_plat - Platform data for the SDL video driver
  *
- * This is often abreviated to dms.
+ * This platform data is needed in tests, so declare it here
  *
- * @root: Root device
- * @testdev: Test device
- * @fail_count: Number of tests that failed
- * @force_fail_alloc: Force all memory allocs to fail
- * @skip_post_probe: Skip uclass post-probe processing
- * @removed: Used to keep track of a device that was removed
+ * @xres: Width of display in pixels
+ * @yres: Height of display in pixels
+ * @bpix: Log2 of bits per pixel (enum video_log2_bpp)
+ * @rot: Console rotation (0=normal orientation, 1=90 degrees clockwise,
+ *	2=upside down, 3=90 degree counterclockwise)
+ * @vidconsole_drv_name: Name of video console driver (set by tests)
+ * @font_size: Console font size to select (set by tests)
  */
-struct dm_test_state {
-	struct udevice *root;
-	struct udevice *testdev;
-	int fail_count;
-	int force_fail_alloc;
-	int skip_post_probe;
-	struct udevice *removed;
-	struct mallinfo start;
-};
-
-/* Test flags for each test */
-enum {
-	DM_TESTF_SCAN_PDATA	= 1 << 0,	/* test needs platform data */
-	DM_TESTF_PROBE_TEST	= 1 << 1,	/* probe test uclass */
-	DM_TESTF_SCAN_FDT	= 1 << 2,	/* scan device tree */
+struct sandbox_sdl_plat {
+	int xres;
+	int yres;
+	int bpix;
+	int rot;
+	const char *vidconsole_drv_name;
+	int font_size;
 };
 
 /**
- * struct dm_test - Information about a driver model test
+ * struct dm_test_parent_plat - Used to track state in bus tests
  *
- * @name: Name of test
- * @func: Function to call to perform test
- * @flags: Flags indicated pre-conditions for test
+ * @count:
+ * @bind_flag: Indicates that the child post-bind method was called
+ * @uclass_bind_flag: Also indicates that the child post-bind method was called
  */
-struct dm_test {
-	const char *name;
-	int (*func)(struct dm_test_state *dms);
-	int flags;
+struct dm_test_parent_plat {
+	int count;
+	int bind_flag;
+	int uclass_bind_flag;
 };
 
-/* Declare a new driver model test */
-#define DM_TEST(_name, _flags)						\
-	ll_entry_declare(struct dm_test, _name, dm_test) = {		\
-		.name = #_name,						\
-		.flags = _flags,					\
-		.func = _name,						\
-	}
+enum {
+	TEST_FLAG_CHILD_PROBED	= 10,
+	TEST_FLAG_CHILD_REMOVED	= -7,
+};
 
 /* Declare ping methods for the drivers */
 int test_ping(struct udevice *dev, int pingval, int *pingret);
@@ -165,9 +198,9 @@ int testfdt_ping(struct udevice *dev, int pingval, int *pingret);
  * @dev: Device to test
  * @base: Base address, used to check ping return value
  * @priv: Pointer to private test information
- * @return 0 if OK, -ve on error
+ * Return: 0 if OK, -ve on error
  */
-int dm_check_operations(struct dm_test_state *dms, struct udevice *dev,
+int dm_check_operations(struct unit_test_state *uts, struct udevice *dev,
 			uint32_t base, struct dm_test_priv *priv);
 
 /**
@@ -175,9 +208,9 @@ int dm_check_operations(struct dm_test_state *dms, struct udevice *dev,
  *
  * @dms: Overall test state
  * @num_devices: Number of test devices to check
- * @return 0 if OK, -ve on error
+ * Return: 0 if OK, -ve on error
  */
-int dm_check_devices(struct dm_test_state *dms, int num_devices);
+int dm_check_devices(struct unit_test_state *uts, int num_devices);
 
 /**
  * dm_leak_check_start() - Prepare to check for a memory leak
@@ -187,7 +220,7 @@ int dm_check_devices(struct dm_test_state *dms, int num_devices);
  *
  * @dms: Overall test state
  */
-void dm_leak_check_start(struct dm_test_state *dms);
+void dm_leak_check_start(struct unit_test_state *uts);
 
 /**
  * dm_leak_check_end() - Check that no memory has leaked
@@ -197,16 +230,6 @@ void dm_leak_check_start(struct dm_test_state *dms);
  * it sees a different amount of total memory allocated than before.
  *
  * @dms: Overall test state
- */int dm_leak_check_end(struct dm_test_state *dms);
-
-
-/**
- * dm_test_main() - Run all the tests
- *
- * This runs all available driver model tests
- *
- * @return 0 if OK, -ve on error
- */
-int dm_test_main(void);
+ */int dm_leak_check_end(struct unit_test_state *uts);
 
 #endif

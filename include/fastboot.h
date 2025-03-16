@@ -12,7 +12,19 @@
 #ifndef _FASTBOOT_H_
 #define _FASTBOOT_H_
 
+#include <linux/types.h>
+
 #define FASTBOOT_VERSION	"0.4"
+
+/*
+ * Signals u-boot fastboot code to send multiple responses by
+ * calling response generating function repeatedly until a OKAY/FAIL
+ * is generated as final response.
+ *
+ * This status code is only used internally to signal, must NOT
+ * be sent to host.
+ */
+#define FASTBOOT_MULTIRESPONSE_START	("MORE")
 
 /* The 64 defined bytes plus \0 */
 #define FASTBOOT_COMMAND_LEN	(64 + 1)
@@ -24,20 +36,34 @@
 enum {
 	FASTBOOT_COMMAND_GETVAR = 0,
 	FASTBOOT_COMMAND_DOWNLOAD,
-#ifdef CONFIG_FASTBOOT_FLASH
 	FASTBOOT_COMMAND_FLASH,
 	FASTBOOT_COMMAND_ERASE,
-#endif
 	FASTBOOT_COMMAND_BOOT,
 	FASTBOOT_COMMAND_CONTINUE,
 	FASTBOOT_COMMAND_REBOOT,
 	FASTBOOT_COMMAND_REBOOT_BOOTLOADER,
+	FASTBOOT_COMMAND_REBOOT_FASTBOOTD,
+	FASTBOOT_COMMAND_REBOOT_RECOVERY,
 	FASTBOOT_COMMAND_SET_ACTIVE,
-#ifdef FASTBOOT_CMD_OEM_FORMAT
 	FASTBOOT_COMMAND_OEM_FORMAT,
-#endif
-
+	FASTBOOT_COMMAND_OEM_PARTCONF,
+	FASTBOOT_COMMAND_OEM_BOOTBUS,
+	FASTBOOT_COMMAND_OEM_RUN,
+	FASTBOOT_COMMAND_OEM_CONSOLE,
+	FASTBOOT_COMMAND_OEM_BOARD,
+	FASTBOOT_COMMAND_ACMD,
+	FASTBOOT_COMMAND_UCMD,
 	FASTBOOT_COMMAND_COUNT
+};
+
+/**
+ * Reboot reasons
+ */
+enum fastboot_reboot_reason {
+	FASTBOOT_REBOOT_REASON_BOOTLOADER,
+	FASTBOOT_REBOOT_REASON_FASTBOOTD,
+	FASTBOOT_REBOOT_REASON_RECOVERY,
+	FASTBOOT_REBOOT_REASONS_COUNT
 };
 
 /**
@@ -77,7 +103,7 @@ void fastboot_okay(const char *reason, char *response);
  * which sets whatever flag your board specific Android bootloader flow
  * requires in order to re-enter the bootloader.
  */
-int fastboot_set_reboot_flag(void);
+int fastboot_set_reboot_flag(enum fastboot_reboot_reason reason);
 
 /**
  * fastboot_set_progress_callback() - set progress callback
@@ -110,6 +136,15 @@ void fastboot_init(void *buf_addr, u32 buf_size);
  * the board.
  */
 void fastboot_boot(void);
+
+/**
+ * fastboot_handle_boot() - Shared implementation of system reaction to
+ * fastboot commands
+ *
+ * Making desceisions about device boot state (stay in fastboot, reboot
+ * to bootloader, reboot to OS, etc).
+ */
+void fastboot_handle_boot(int command, bool success);
 
 /**
  * fastboot_handle_command() - Handle fastboot command
@@ -151,4 +186,13 @@ void fastboot_data_download(const void *fastboot_data,
  */
 void fastboot_data_complete(char *response);
 
+/**
+ * fastboot_handle_multiresponse() - Called for each response to send
+ *
+ * @cmd: Command id that requested multiresponse
+ * @response: Pointer to fastboot response buffer
+ */
+void fastboot_multiresponse(int cmd, char *response);
+
+void fastboot_acmd_complete(void);
 #endif /* _FASTBOOT_H_ */

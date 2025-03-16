@@ -1,15 +1,19 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright 2010 Freescale Semiconductor, Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __FSL_SERDES_H
 #define __FSL_SERDES_H
 
 #include <config.h>
+#include <linux/types.h>
 
 enum srds_prtcl {
+	/*
+	 * Nobody will check whether the device 'NONE' has been configured,
+	 * So use it to indicate if the serdes_prtcl_map has been initialized.
+	 */
 	NONE = 0,
 	PCIE1,
 	PCIE2,
@@ -87,6 +91,13 @@ enum srds_prtcl {
 	SGMII_2500_FM2_DTSEC6,
 	SGMII_2500_FM2_DTSEC9,
 	SGMII_2500_FM2_DTSEC10,
+	SGMII_SW1_MAC1,
+	SGMII_SW1_MAC2,
+	SGMII_SW1_MAC3,
+	SGMII_SW1_MAC4,
+	SGMII_SW1_MAC5,
+	SGMII_SW1_MAC6,
+	SERDES_PRCTL_COUNT	/* Keep this item the last one */
 };
 
 enum srds {

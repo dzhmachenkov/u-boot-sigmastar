@@ -1,136 +1,163 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
- * Copyright (C) 2012-2014 Panasonic Corporation
- *   Author: Masahiro Yamada <yamada.m@jp.panasonic.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
+ * Copyright (C) 2012-2015 Panasonic Corporation
+ * Copyright (C) 2015-2016 Socionext Inc.
+ *   Author: Masahiro Yamada <yamada.masahiro@socionext.com>
  */
 
+#include <dm.h>
+#include <linux/bitfield.h>
+#include <linux/bitops.h>
+#include <linux/bug.h>
+#include <linux/io.h>
 #include <linux/serial_reg.h>
-#include <asm/io.h>
-#include <asm/errno.h>
-#include <dm/device.h>
-#include <dm/platform_data/serial-uniphier.h>
+#include <linux/sizes.h>
+#include <linux/errno.h>
 #include <serial.h>
 #include <fdtdec.h>
 
-#define UART_REG(x)					\
-	u8 x;						\
-	u8 postpad_##x[3];
+#define UNIPHIER_UART_REGSHIFT		2
 
-/*
- * Note: Register map is slightly different from that of 16550.
- */
-struct uniphier_serial {
-	UART_REG(rbr);		/* 0x00 */
-	UART_REG(ier);		/* 0x04 */
-	UART_REG(iir);		/* 0x08 */
-	UART_REG(fcr);		/* 0x0c */
-	u8 mcr;			/* 0x10 */
-	u8 lcr;
-	u16 __postpad;
-	UART_REG(lsr);		/* 0x14 */
-	UART_REG(msr);		/* 0x18 */
-	u32 __none1;
-	u32 __none2;
-	u16 dlr;
-	u16 __postpad2;
+#define UNIPHIER_UART_RX		(0 << (UNIPHIER_UART_REGSHIFT))
+#define UNIPHIER_UART_TX		UNIPHIER_UART_RX
+/* bit[15:8] = CHAR, bit[7:0] = FCR */
+#define UNIPHIER_UART_CHAR_FCR		(3 << (UNIPHIER_UART_REGSHIFT))
+#define   UNIPHIER_UART_FCR_MASK		GENMASK(7, 0)
+/* bit[15:8] = LCR, bit[7:0] = MCR */
+#define UNIPHIER_UART_LCR_MCR		(4 << (UNIPHIER_UART_REGSHIFT))
+#define   UNIPHIER_UART_LCR_MASK		GENMASK(15, 8)
+#define UNIPHIER_UART_LSR		(5 << (UNIPHIER_UART_REGSHIFT))
+/* Divisor Latch Register */
+#define UNIPHIER_UART_DLR		(9 << (UNIPHIER_UART_REGSHIFT))
+
+struct uniphier_serial_priv {
+	void __iomem *membase;
+	unsigned int uartclk;
 };
-
-#define thr rbr
-
-struct uniphier_serial_private_data {
-	struct uniphier_serial __iomem *membase;
-};
-
-#define uniphier_serial_port(dev)	\
-	((struct uniphier_serial_private_data *)dev_get_priv(dev))->membase
 
 static int uniphier_serial_setbrg(struct udevice *dev, int baudrate)
 {
-	struct uniphier_serial_platform_data *plat = dev_get_platdata(dev);
-	struct uniphier_serial __iomem *port = uniphier_serial_port(dev);
-	const unsigned int mode_x_div = 16;
+	struct uniphier_serial_priv *priv = dev_get_priv(dev);
+	static const unsigned int mode_x_div = 16;
 	unsigned int divisor;
 
-	writeb(UART_LCR_WLEN8, &port->lcr);
+	divisor = DIV_ROUND_CLOSEST(priv->uartclk, mode_x_div * baudrate);
 
-	divisor = DIV_ROUND_CLOSEST(plat->uartclk, mode_x_div * baudrate);
+	/* flush the trasmitter before changing hw setting */
+	while (!(readl(priv->membase + UNIPHIER_UART_LSR) & UART_LSR_TEMT))
+		;
 
-	writew(divisor, &port->dlr);
+	writel(divisor, priv->membase + UNIPHIER_UART_DLR);
 
 	return 0;
 }
 
 static int uniphier_serial_getc(struct udevice *dev)
 {
-	struct uniphier_serial __iomem *port = uniphier_serial_port(dev);
+	struct uniphier_serial_priv *priv = dev_get_priv(dev);
 
-	if (!(readb(&port->lsr) & UART_LSR_DR))
+	if (!(readl(priv->membase + UNIPHIER_UART_LSR) & UART_LSR_DR))
 		return -EAGAIN;
 
-	return readb(&port->rbr);
+	return readl(priv->membase + UNIPHIER_UART_RX);
 }
 
 static int uniphier_serial_putc(struct udevice *dev, const char c)
 {
-	struct uniphier_serial __iomem *port = uniphier_serial_port(dev);
+	struct uniphier_serial_priv *priv = dev_get_priv(dev);
 
-	if (!(readb(&port->lsr) & UART_LSR_THRE))
+	if (!(readl(priv->membase + UNIPHIER_UART_LSR) & UART_LSR_THRE))
 		return -EAGAIN;
 
-	writeb(c, &port->thr);
+	writel(c, priv->membase + UNIPHIER_UART_TX);
 
 	return 0;
 }
 
 static int uniphier_serial_pending(struct udevice *dev, bool input)
 {
-	struct uniphier_serial __iomem *port = uniphier_serial_port(dev);
+	struct uniphier_serial_priv *priv = dev_get_priv(dev);
 
 	if (input)
-		return readb(&port->lsr) & UART_LSR_DR;
+		return readl(priv->membase + UNIPHIER_UART_LSR) & UART_LSR_DR;
 	else
-		return !(readb(&port->lsr) & UART_LSR_THRE);
+		return !(readl(priv->membase + UNIPHIER_UART_LSR) & UART_LSR_THRE);
 }
+
+/*
+ * SPL does not have enough memory footprint for the clock driver.
+ * Hardcode clock frequency for each SoC.
+ */
+struct uniphier_serial_clk_data {
+	const char *compatible;
+	unsigned int clk_rate;
+};
+
+static const struct uniphier_serial_clk_data uniphier_serial_clk_data[] = {
+	{ .compatible = "socionext,uniphier-ld4",  .clk_rate = 36864000 },
+	{ .compatible = "socionext,uniphier-pro4", .clk_rate = 73728000 },
+	{ .compatible = "socionext,uniphier-sld8", .clk_rate = 80000000 },
+	{ .compatible = "socionext,uniphier-pro5", .clk_rate = 73728000 },
+	{ .compatible = "socionext,uniphier-pxs2", .clk_rate = 88888888 },
+	{ .compatible = "socionext,uniphier-ld6b", .clk_rate = 88888888 },
+	{ .compatible = "socionext,uniphier-ld11", .clk_rate = 58823529 },
+	{ .compatible = "socionext,uniphier-ld20", .clk_rate = 58823529 },
+	{ .compatible = "socionext,uniphier-pxs3", .clk_rate = 58823529 },
+	{ /* sentinel */ },
+};
 
 static int uniphier_serial_probe(struct udevice *dev)
 {
-	struct uniphier_serial_private_data *priv = dev_get_priv(dev);
-	struct uniphier_serial_platform_data *plat = dev_get_platdata(dev);
+	struct uniphier_serial_priv *priv = dev_get_priv(dev);
+	const struct uniphier_serial_clk_data *clk_data;
+	ofnode root_node;
+	fdt_addr_t base;
+	u32 tmp;
 
-	priv->membase = map_sysmem(plat->base, sizeof(struct uniphier_serial));
+	base = dev_read_addr(dev);
+	if (base == FDT_ADDR_T_NONE)
+		return -EINVAL;
 
+	priv->membase = devm_ioremap(dev, base, SZ_64);
 	if (!priv->membase)
 		return -ENOMEM;
 
+	root_node = ofnode_path("/");
+	clk_data = uniphier_serial_clk_data;
+	while (clk_data->compatible) {
+		if (ofnode_device_is_compatible(root_node,
+						clk_data->compatible))
+			break;
+		clk_data++;
+	}
+
+	if (WARN_ON(!clk_data->compatible))
+		return -ENOTSUPP;
+
+	priv->uartclk = clk_data->clk_rate;
+
+	/* flush the trasmitter before changing hw setting */
+	while (!(readl(priv->membase + UNIPHIER_UART_LSR) & UART_LSR_TEMT))
+		;
+
+	/* enable FIFO */
+	tmp = readl(priv->membase + UNIPHIER_UART_CHAR_FCR);
+	tmp &= ~UNIPHIER_UART_FCR_MASK;
+	tmp |= FIELD_PREP(UNIPHIER_UART_FCR_MASK, UART_FCR_ENABLE_FIFO);
+	writel(tmp, priv->membase + UNIPHIER_UART_CHAR_FCR);
+
+	tmp = readl(priv->membase + UNIPHIER_UART_LCR_MCR);
+	tmp &= ~UNIPHIER_UART_LCR_MASK;
+	tmp |= FIELD_PREP(UNIPHIER_UART_LCR_MASK, UART_LCR_WLEN8);
+	writel(tmp, priv->membase + UNIPHIER_UART_LCR_MCR);
+
 	return 0;
 }
 
-static int uniphier_serial_remove(struct udevice *dev)
-{
-	unmap_sysmem(uniphier_serial_port(dev));
-
-	return 0;
-}
-
-#ifdef CONFIG_OF_CONTROL
 static const struct udevice_id uniphier_uart_of_match[] = {
-	{ .compatible = "panasonic,uniphier-uart" },
-	{},
+	{ .compatible = "socionext,uniphier-uart" },
+	{ /* sentinel */ }
 };
-
-static int uniphier_serial_ofdata_to_platdata(struct udevice *dev)
-{
-	struct uniphier_serial_platform_data *plat = dev_get_platdata(dev);
-	DECLARE_GLOBAL_DATA_PTR;
-
-	plat->base = fdtdec_get_addr(gd->fdt_blob, dev->of_offset, "reg");
-	plat->uartclk = fdtdec_get_int(gd->fdt_blob, dev->of_offset,
-				       "clock-frequency", 0);
-
-	return 0;
-}
-#endif
 
 static const struct dm_serial_ops uniphier_serial_ops = {
 	.setbrg = uniphier_serial_setbrg,
@@ -140,15 +167,10 @@ static const struct dm_serial_ops uniphier_serial_ops = {
 };
 
 U_BOOT_DRIVER(uniphier_serial) = {
-	.name = DRIVER_NAME,
+	.name = "uniphier-uart",
 	.id = UCLASS_SERIAL,
-	.of_match = of_match_ptr(uniphier_uart_of_match),
-	.ofdata_to_platdata = of_match_ptr(uniphier_serial_ofdata_to_platdata),
+	.of_match = uniphier_uart_of_match,
 	.probe = uniphier_serial_probe,
-	.remove = uniphier_serial_remove,
-	.priv_auto_alloc_size = sizeof(struct uniphier_serial_private_data),
-	.platdata_auto_alloc_size =
-				sizeof(struct uniphier_serial_platform_data),
+	.priv_auto	= sizeof(struct uniphier_serial_priv),
 	.ops = &uniphier_serial_ops,
-	.flags = DM_FLAG_PRE_RELOC,
 };

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (c) 2009 Wind River Systems, Inc.
  * Tom Rix <Tom.Rix@windriver.com>
@@ -13,13 +14,11 @@
  * Copyright (c) 2009 Texas Instruments
  *
  * ------------------------------------------------------------------------
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
+#include <serial.h>
 #include <asm/omap_common.h>
 #include <twl4030.h>
-#include <twl6030.h>
 #include "omap3.h"
 
 static int platform_needs_initialization = 1;
@@ -54,15 +53,9 @@ static struct omap3_otg_regs *otg;
 
 #define OMAP3_OTG_SYSSTATUS_RESETDONE			0x0001
 
-/* OMAP4430 has an internal PHY, use it */
-#ifdef CONFIG_OMAP4430
-#define OMAP3_OTG_INTERFSEL_OMAP			0x0000
-#else
 #define OMAP3_OTG_INTERFSEL_OMAP			0x0001
-#endif
 
 #define OMAP3_OTG_FORCESTDBY_STANDBY			0x0001
-
 
 #ifdef DEBUG_MUSB_OMAP3
 static void musb_db_otg_regs(void)
@@ -100,10 +93,6 @@ int musb_platform_init(void)
 		}
 #endif
 
-#ifdef CONFIG_TWL6030_POWER
-		twl6030_usb_device_settings();
-#endif
-
 		otg = (struct omap3_otg_regs *)OMAP3_OTG_BASE;
 
 		/* Set OTG to always be on */
@@ -118,15 +107,10 @@ int musb_platform_init(void)
 		stdby &= ~OMAP3_OTG_FORCESTDBY_STANDBY;
 		writel(stdby, &otg->forcestdby);
 
-#ifdef CONFIG_OMAP3_EVM
+#ifdef CONFIG_TARGET_OMAP3_EVM
 		musb_cfg.extvbus = omap3_evm_need_extvbus();
 #endif
 
-#ifdef CONFIG_OMAP4430
-		u32 *usbotghs_control =
-			(u32 *)((*ctrl)->control_usbotghs_ctrl);
-		*usbotghs_control = 0x15;
-#endif
 		platform_needs_initialization = 0;
 	}
 

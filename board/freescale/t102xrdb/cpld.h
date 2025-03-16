@@ -1,7 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /**
  * Copyright 2014 Freescale Semiconductor
- *
- * SPDX-License-Identifier:	GPL-2.0+
  *
  */
 
@@ -22,8 +21,7 @@ struct cpld_data {
 	u8 boot_override;	/* 0x18 - Boot override register */
 	u8 boot_config1;	/* 0x19 - Boot config override register*/
 	u8 boot_config2;	/* 0x1A - Boot config override register*/
-} cpld_data_t;
-
+};
 
 /* Pointer to the CPLD register set */
 
@@ -43,3 +41,7 @@ void cpld_write(unsigned int reg, u8 value);
 #define CPLD_LBMAP_RESET	0xFF
 #define CPLD_LBMAP_SHIFT	0x03
 #define CPLD_BOOT_SEL	   0x80
+
+#define CPLD_PCIE_SGMII_MUX	0x80
+#define CPLD_OVERRIDE_BOOT_EN	0x01
+#define CPLD_OVERRIDE_MUX_EN	0x02 /* PCIE/2.5G-SGMII mux override enable */

@@ -1,10 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Taken from the linux kernel file of the same name
  *
  * (C) Copyright 2012
  * Graeme Russ, <graeme.russ@gmail.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef _ASM_X86_MSR_H
@@ -22,7 +21,7 @@
 
 #ifdef __KERNEL__
 
-#include <asm/errno.h>
+#include <linux/errno.h>
 
 struct msr {
 	union {
@@ -72,7 +71,7 @@ static inline unsigned long long native_read_tscp(unsigned int *aux)
 #define EAX_EDX_RET(val, low, high)	"=A" (val)
 #endif
 
-static inline __attribute__((no_instrument_function))
+static inline notrace
 	unsigned long long native_read_msr(unsigned int msr)
 {
 	DECLARE_ARGS(val, low, high);
@@ -127,6 +126,34 @@ static inline void wrmsr(unsigned msr, unsigned low, unsigned high)
 
 #define wrmsrl(msr, val)						\
 	native_write_msr((msr), (u32)((u64)(val)), (u32)((u64)(val) >> 32))
+
+static inline void msr_clrsetbits_64(unsigned msr, u64 clear, u64 set)
+{
+	u64 val;
+
+	val = native_read_msr(msr);
+	val &= ~clear;
+	val |= set;
+	wrmsrl(msr, val);
+}
+
+static inline void msr_setbits_64(unsigned msr, u64 set)
+{
+	u64 val;
+
+	val = native_read_msr(msr);
+	val |= set;
+	wrmsrl(msr, val);
+}
+
+static inline void msr_clrbits_64(unsigned msr, u64 clear)
+{
+	u64 val;
+
+	val = native_read_msr(msr);
+	val &= ~clear;
+	wrmsrl(msr, val);
+}
 
 /* rdmsr with exception handling */
 #define rdmsr_safe(msr, p1, p2)					\
@@ -217,7 +244,6 @@ do {                                                            \
 #define rdtscpll(val, aux) (val) = native_read_tscp(&(aux))
 
 #endif	/* !CONFIG_PARAVIRT */
-
 
 #define checking_wrmsrl(msr, val) wrmsr_safe((msr), (u32)(val),		\
 					     (u32)((val) >> 32))

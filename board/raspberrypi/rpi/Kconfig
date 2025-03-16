@@ -1,15 +1,10 @@
-if TARGET_RPI
+if SYS_BOARD = "rpi"
 
-config SYS_BOARD
-	default "rpi"
-
-config SYS_VENDOR
-	default "raspberrypi"
-
-config SYS_SOC
-	default "bcm2835"
-
-config SYS_CONFIG_NAME
-	default "rpi"
+config RPI_EFI_NR_SPIN_PAGES
+	int "Spin table page count"
+	default 1
+	help
+	  Number of pages to reserve starting at page 0 for spin tables in the EFI
+	  memory map
 
 endif

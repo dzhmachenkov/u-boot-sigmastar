@@ -1,40 +1,154 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2012 SAMSUNG Electronics
  * Jaehoon Chung <jh80.chung@samsung.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
-#include <common.h>
+#include <clk.h>
 #include <dwmmc.h>
-#include <fdtdec.h>
-#include <libfdt.h>
+#include <asm/global_data.h>
 #include <malloc.h>
+#include <errno.h>
 #include <asm/arch/dwmmc.h>
 #include <asm/arch/clk.h>
 #include <asm/arch/pinmux.h>
+#include <asm/arch/power.h>
 #include <asm/gpio.h>
-#include <asm-generic/errno.h>
+#include <linux/err.h>
+#include <linux/printk.h>
 
 #define	DWMMC_MAX_CH_NUM		4
 #define	DWMMC_MAX_FREQ			52000000
 #define	DWMMC_MIN_FREQ			400000
-#define	DWMMC_MMC0_CLKSEL_VAL		0x03030001
-#define	DWMMC_MMC2_CLKSEL_VAL		0x03020001
+#define	DWMMC_MMC0_SDR_TIMING_VAL	0x03030001
+#define	DWMMC_MMC2_SDR_TIMING_VAL	0x03020001
 
-/*
- * Function used as callback function to initialise the
- * CLKSEL register for every mmc channel.
- */
-static void exynos_dwmci_clksel(struct dwmci_host *host)
+#define EXYNOS4412_FIXED_CIU_CLK_DIV	4
+
+/* Quirks */
+#define DWMCI_QUIRK_DISABLE_SMU		BIT(0)
+
+#ifdef CONFIG_DM_MMC
+#include <dm.h>
+DECLARE_GLOBAL_DATA_PTR;
+
+struct exynos_mmc_plat {
+	struct mmc_config cfg;
+	struct mmc mmc;
+};
+#endif
+
+/* Chip specific data */
+struct exynos_dwmmc_variant {
+	u32 clksel;		/* CLKSEL register offset */
+	u8 div;			/* (optional) fixed clock divider value: 0..7 */
+	u32 quirks;		/* quirk flags - see DWMCI_QUIRK_... */
+};
+
+/* Exynos implementation specific driver private data */
+struct dwmci_exynos_priv_data {
+#ifdef CONFIG_DM_MMC
+	struct dwmci_host host;
+#endif
+	struct clk clk;
+	u32 sdr_timing;
+	u32 ddr_timing;
+	const struct exynos_dwmmc_variant *chip;
+};
+
+static struct dwmci_exynos_priv_data *exynos_dwmmc_get_priv(
+		struct dwmci_host *host)
 {
-	dwmci_writel(host, DWMCI_CLKSEL, host->clksel_val);
+#ifdef CONFIG_DM_MMC
+	return container_of(host, struct dwmci_exynos_priv_data, host);
+#else
+	return host->priv;
+#endif
 }
 
-unsigned int exynos_dwmci_get_clk(struct dwmci_host *host)
+/**
+ * exynos_dwmmc_get_sclk - Get source clock (SDCLKIN) rate
+ * @host: MMC controller object
+ * @rate: Will contain clock rate, Hz
+ *
+ * Return: 0 on success or negative value on error
+ */
+static int exynos_dwmmc_get_sclk(struct dwmci_host *host, unsigned long *rate)
 {
+#ifdef CONFIG_CPU_V7A
+	*rate = get_mmc_clk(host->dev_index);
+#else
+	struct dwmci_exynos_priv_data *priv = exynos_dwmmc_get_priv(host);
+
+	*rate = clk_get_rate(&priv->clk);
+#endif
+
+	if (IS_ERR_VALUE(*rate))
+		return *rate;
+
+	return 0;
+}
+
+/**
+ * exynos_dwmmc_set_sclk - Set source clock (SDCLKIN) rate
+ * @host: MMC controller object
+ * @rate: Desired clock rate, Hz
+ *
+ * Return: 0 on success or negative value on error
+ */
+static int exynos_dwmmc_set_sclk(struct dwmci_host *host, unsigned long rate)
+{
+	int err;
+
+#ifdef CONFIG_CPU_V7A
 	unsigned long sclk;
-	int8_t clk_div;
+	unsigned int div;
+
+	err = exynos_dwmmc_get_sclk(host, &sclk);
+	if (err)
+		return err;
+
+	div = DIV_ROUND_UP(sclk, rate);
+	set_mmc_clk(host->dev_index, div);
+#else
+	struct dwmci_exynos_priv_data *priv = exynos_dwmmc_get_priv(host);
+
+	err = clk_set_rate(&priv->clk, rate);
+	if (err < 0)
+		return err;
+#endif
+
+	return 0;
+}
+
+/* Configure CLKSEL register with chosen timing values */
+static int exynos_dwmci_clksel(struct dwmci_host *host)
+{
+	struct dwmci_exynos_priv_data *priv = exynos_dwmmc_get_priv(host);
+	u32 timing;
+
+	if (host->mmc->selected_mode == MMC_DDR_52)
+		timing = priv->ddr_timing;
+	else
+		timing = priv->sdr_timing;
+
+	dwmci_writel(host, priv->chip->clksel, timing);
+
+	return 0;
+}
+
+/**
+ * exynos_dwmmc_get_ciu_div - Get internal clock divider value
+ * @host: MMC controller object
+ *
+ * Returns: Divider value, in range of 1..8
+ */
+static u8 exynos_dwmmc_get_ciu_div(struct dwmci_host *host)
+{
+	struct dwmci_exynos_priv_data *priv = exynos_dwmmc_get_priv(host);
+
+	if (priv->chip->div)
+		return priv->chip->div + 1;
 
 	/*
 	 * Since SDCLKIN is divided inside controller by the DIVRATIO
@@ -42,20 +156,42 @@ unsigned int exynos_dwmci_get_clk(struct dwmci_host *host)
 	 * clock value to calculate the CLKDIV value.
 	 * as per user manual:cclk_in = SDCLKIN / (DIVRATIO + 1)
 	 */
-	clk_div = ((dwmci_readl(host, DWMCI_CLKSEL) >> DWMCI_DIVRATIO_BIT)
-			& DWMCI_DIVRATIO_MASK) + 1;
-	sclk = get_mmc_clk(host->dev_index);
+	return ((dwmci_readl(host, priv->chip->clksel) >> DWMCI_DIVRATIO_BIT)
+				& DWMCI_DIVRATIO_MASK) + 1;
+}
 
-	/*
-	 * Assume to know divider value.
-	 * When clock unit is broken, need to set "host->div"
-	 */
-	return sclk / clk_div / (host->div + 1);
+static unsigned int exynos_dwmci_get_clk(struct dwmci_host *host, uint freq)
+{
+	unsigned long sclk;
+	u8 clk_div;
+	int err;
+
+	/* Should be double rate for DDR mode */
+	if (host->mmc->selected_mode == MMC_DDR_52 && host->mmc->bus_width == 8)
+		freq *= 2;
+
+	clk_div = exynos_dwmmc_get_ciu_div(host);
+	err = exynos_dwmmc_set_sclk(host, freq * clk_div);
+	if (err) {
+		printf("DWMMC%d: failed to set clock rate (%d); "
+		       "continue anyway\n", host->dev_index, err);
+	}
+
+	err = exynos_dwmmc_get_sclk(host, &sclk);
+	if (err) {
+		printf("DWMMC%d: failed to get clock rate (%d)\n",
+		       host->dev_index, err);
+		return 0;
+	}
+
+	return sclk / clk_div;
 }
 
 static void exynos_dwmci_board_init(struct dwmci_host *host)
 {
-	if (host->quirks & DWMCI_QUIRK_DISABLE_SMU) {
+	struct dwmci_exynos_priv_data *priv = exynos_dwmmc_get_priv(host);
+
+	if (priv->chip->quirks & DWMCI_QUIRK_DISABLE_SMU) {
 		dwmci_writel(host, EMMCP_MPSBEGIN0, 0);
 		dwmci_writel(host, EMMCP_SEND0, 0);
 		dwmci_writel(host, EMMCP_CTRL0,
@@ -64,179 +200,197 @@ static void exynos_dwmci_board_init(struct dwmci_host *host)
 			     MPSCTRL_NON_SECURE_READ_BIT |
 			     MPSCTRL_NON_SECURE_WRITE_BIT | MPSCTRL_VALID);
 	}
+
+	if (priv->sdr_timing)
+		exynos_dwmci_clksel(host);
 }
 
-static int exynos_dwmci_core_init(struct dwmci_host *host, int index)
+#ifdef CONFIG_DM_MMC
+static int exynos_dwmmc_of_to_plat(struct udevice *dev)
 {
-	unsigned int div;
-	unsigned long freq, sclk;
+	struct dwmci_exynos_priv_data *priv = dev_get_priv(dev);
+	struct dwmci_host *host = &priv->host;
+	u32 div, timing[2];
+	int err;
+
+	priv->chip = (struct exynos_dwmmc_variant *)dev_get_driver_data(dev);
+
+#ifdef CONFIG_CPU_V7A
+	const void *blob = gd->fdt_blob;
+	int node = dev_of_offset(dev);
+
+	/* Obtain device ID for current MMC channel */
+	host->dev_id = pinmux_decode_periph_id(blob, node);
+	host->dev_index = dev_read_u32_default(dev, "index", host->dev_id);
+	if (host->dev_index == host->dev_id)
+		host->dev_index = host->dev_id - PERIPH_ID_SDMMC0;
+
+	if (host->dev_index > 4) {
+		printf("DWMMC%d: Can't get the dev index\n", host->dev_index);
+		return -EINVAL;
+	}
+#else
+	if (dev_read_bool(dev, "non-removable"))
+		host->dev_index = 0; /* eMMC */
+	else
+		host->dev_index = 2; /* SD card */
+#endif
+
+	host->ioaddr = dev_read_addr_ptr(dev);
+	if (!host->ioaddr) {
+		printf("DWMMC%d: Can't get base address\n", host->dev_index);
+		return -EINVAL;
+	}
+
+	if (priv->chip->div)
+		div = priv->chip->div;
+	else
+		div = dev_read_u32_default(dev, "samsung,dw-mshc-ciu-div", 0);
+
+	err = dev_read_u32_array(dev, "samsung,dw-mshc-sdr-timing", timing, 2);
+	if (err) {
+		printf("DWMMC%d: Can't get sdr-timings\n", host->dev_index);
+		return -EINVAL;
+	}
+	priv->sdr_timing = DWMCI_SET_SAMPLE_CLK(timing[0]) |
+			   DWMCI_SET_DRV_CLK(timing[1]) |
+			   DWMCI_SET_DIV_RATIO(div);
+
+	/* sdr_timing wasn't set, use the default value */
+	if (!priv->sdr_timing) {
+		if (host->dev_index == 0)
+			priv->sdr_timing = DWMMC_MMC0_SDR_TIMING_VAL;
+		else if (host->dev_index == 2)
+			priv->sdr_timing = DWMMC_MMC2_SDR_TIMING_VAL;
+	}
+
+	err = dev_read_u32_array(dev, "samsung,dw-mshc-ddr-timing", timing, 2);
+	if (err) {
+		debug("DWMMC%d: Can't get ddr-timings, using sdr-timings\n",
+		      host->dev_index);
+		priv->ddr_timing = priv->sdr_timing;
+	} else {
+		priv->ddr_timing = DWMCI_SET_SAMPLE_CLK(timing[0]) |
+				   DWMCI_SET_DRV_CLK(timing[1]) |
+				   DWMCI_SET_DIV_RATIO(div);
+	}
+
+	host->buswidth = dev_read_u32_default(dev, "bus-width", 4);
+	host->fifo_depth = dev_read_u32_default(dev, "fifo-depth", 0);
+	host->bus_hz = dev_read_u32_default(dev, "clock-frequency", 0);
+
+	return 0;
+}
+
+static int exynos_dwmmc_probe(struct udevice *dev)
+{
+	struct exynos_mmc_plat *plat = dev_get_plat(dev);
+	struct mmc_uclass_priv *upriv = dev_get_uclass_priv(dev);
+	struct dwmci_exynos_priv_data *priv = dev_get_priv(dev);
+	struct dwmci_host *host = &priv->host;
+	unsigned long freq;
+	int err;
+
+#ifndef CONFIG_CPU_V7A
+	err = clk_get_by_index(dev, 1, &priv->clk); /* ciu */
+	if (err)
+		return err;
+#endif
+
+#ifdef CONFIG_CPU_V7A
+	int flag;
+
+	flag = host->buswidth == 8 ? PINMUX_FLAG_8BIT_MODE : PINMUX_FLAG_NONE;
+	err = exynos_pinmux_config(host->dev_id, flag);
+	if (err) {
+		printf("DWMMC%d not configure\n", host->dev_index);
+		return err;
+	}
+#endif
 
 	if (host->bus_hz)
 		freq = host->bus_hz;
 	else
 		freq = DWMMC_MAX_FREQ;
 
-	/* request mmc clock vlaue of 52MHz.  */
-	sclk = get_mmc_clk(index);
-	div = DIV_ROUND_UP(sclk, freq);
-	/* set the clock divisor for mmc */
-	set_mmc_clk(index, div);
-
-	host->name = "EXYNOS DWMMC";
-#ifdef CONFIG_EXYNOS5420
-	host->quirks = DWMCI_QUIRK_DISABLE_SMU;
-#endif
-	host->board_init = exynos_dwmci_board_init;
-
-	if (!host->clksel_val) {
-		if (index == 0)
-			host->clksel_val = DWMMC_MMC0_CLKSEL_VAL;
-		else if (index == 2)
-			host->clksel_val = DWMMC_MMC2_CLKSEL_VAL;
+	err = exynos_dwmmc_set_sclk(host, freq);
+	if (err) {
+		printf("DWMMC%d: failed to set clock rate on probe (%d); "
+		       "continue anyway\n", host->dev_index, err);
 	}
 
+	host->name = dev->name;
+	host->board_init = exynos_dwmci_board_init;
 	host->caps = MMC_MODE_DDR_52MHz;
 	host->clksel = exynos_dwmci_clksel;
-	host->dev_index = index;
 	host->get_mmc_clk = exynos_dwmci_get_clk;
-	/* Add the mmc channel to be registered with mmc core */
-	if (add_dwmci(host, DWMMC_MAX_FREQ, DWMMC_MIN_FREQ)) {
-		printf("DWMMC%d registration failed\n", index);
-		return -1;
-	}
-	return 0;
-}
 
-/*
- * This function adds the mmc channel to be registered with mmc core.
- * index -	mmc channel number.
- * regbase -	register base address of mmc channel specified in 'index'.
- * bus_width -	operating bus width of mmc channel specified in 'index'.
- * clksel -	value to be written into CLKSEL register in case of FDT.
- *		NULL in case od non-FDT.
- */
-int exynos_dwmci_add_port(int index, u32 regbase, int bus_width, u32 clksel)
-{
-	struct dwmci_host *host = NULL;
-
-	host = malloc(sizeof(struct dwmci_host));
-	if (!host) {
-		error("dwmci_host malloc fail!\n");
-		return -ENOMEM;
-	}
-
-	host->ioaddr = (void *)regbase;
-	host->buswidth = bus_width;
-
-	if (clksel)
-		host->clksel_val = clksel;
-
-	return exynos_dwmci_core_init(host, index);
-}
-
-#ifdef CONFIG_OF_CONTROL
-static struct dwmci_host dwmci_host[DWMMC_MAX_CH_NUM];
-
-static int do_dwmci_init(struct dwmci_host *host)
-{
-	int index, flag, err;
-
-	index = host->dev_index;
-
-	flag = host->buswidth == 8 ? PINMUX_FLAG_8BIT_MODE : PINMUX_FLAG_NONE;
-	err = exynos_pinmux_config(host->dev_id, flag);
+#ifdef CONFIG_BLK
+	dwmci_setup_cfg(&plat->cfg, host, DWMMC_MAX_FREQ, DWMMC_MIN_FREQ);
+	host->mmc = &plat->mmc;
+#else
+	err = add_dwmci(host, DWMMC_MAX_FREQ, DWMMC_MIN_FREQ);
 	if (err) {
-		printf("DWMMC%d not configure\n", index);
+		printf("DWMMC%d registration failed\n", host->dev_index);
 		return err;
 	}
+#endif
 
-	return exynos_dwmci_core_init(host, index);
+	host->mmc->priv = &priv->host;
+	upriv->mmc = host->mmc;
+	host->mmc->dev = dev;
+	host->priv = dev;
+
+	return dwmci_probe(dev);
 }
 
-static int exynos_dwmci_get_config(const void *blob, int node,
-					struct dwmci_host *host)
+static int exynos_dwmmc_bind(struct udevice *dev)
 {
-	int err = 0;
-	u32 base, clksel_val, timing[3];
+	struct exynos_mmc_plat *plat = dev_get_plat(dev);
 
-	/* Extract device id for each mmc channel */
-	host->dev_id = pinmux_decode_periph_id(blob, node);
-
-	host->dev_index = fdtdec_get_int(blob, node, "index", host->dev_id);
-	if (host->dev_index == host->dev_id)
-		host->dev_index = host->dev_id - PERIPH_ID_SDMMC0;
-
-
-	/* Get the bus width from the device node */
-	host->buswidth = fdtdec_get_int(blob, node, "samsung,bus-width", 0);
-	if (host->buswidth <= 0) {
-		printf("DWMMC%d: Can't get bus-width\n", host->dev_index);
-		return -EINVAL;
-	}
-
-	/* Set the base address from the device node */
-	base = fdtdec_get_addr(blob, node, "reg");
-	if (!base) {
-		printf("DWMMC%d: Can't get base address\n", host->dev_index);
-		return -EINVAL;
-	}
-	host->ioaddr = (void *)base;
-
-	/* Extract the timing info from the node */
-	err =  fdtdec_get_int_array(blob, node, "samsung,timing", timing, 3);
-	if (err) {
-		printf("DWMMC%d: Can't get sdr-timings for devider\n",
-				host->dev_index);
-		return -EINVAL;
-	}
-
-	clksel_val = (DWMCI_SET_SAMPLE_CLK(timing[0]) |
-			DWMCI_SET_DRV_CLK(timing[1]) |
-			DWMCI_SET_DIV_RATIO(timing[2]));
-	if (clksel_val)
-		host->clksel_val = clksel_val;
-
-	host->fifoth_val = fdtdec_get_int(blob, node, "fifoth_val", 0);
-	host->bus_hz = fdtdec_get_int(blob, node, "bus_hz", 0);
-	host->div = fdtdec_get_int(blob, node, "div", 0);
-
-	return 0;
+	return dwmci_bind(dev, &plat->mmc, &plat->cfg);
 }
 
-static int exynos_dwmci_process_node(const void *blob,
-					int node_list[], int count)
-{
-	struct dwmci_host *host;
-	int i, node, err;
+static const struct exynos_dwmmc_variant exynos4_drv_data = {
+	.clksel	= DWMCI_CLKSEL,
+	.div	= EXYNOS4412_FIXED_CIU_CLK_DIV - 1,
+};
 
-	for (i = 0; i < count; i++) {
-		node = node_list[i];
-		if (node <= 0)
-			continue;
-		host = &dwmci_host[i];
-		err = exynos_dwmci_get_config(blob, node, host);
-		if (err) {
-			printf("%s: failed to decode dev %d\n", __func__, i);
-			return err;
-		}
+static const struct exynos_dwmmc_variant exynos5_drv_data = {
+	.clksel	= DWMCI_CLKSEL,
+#ifdef CONFIG_EXYNOS5420
+	.quirks	= DWMCI_QUIRK_DISABLE_SMU,
+#endif
+};
 
-		do_dwmci_init(host);
-	}
-	return 0;
-}
+static const struct exynos_dwmmc_variant exynos7_smu_drv_data = {
+	.clksel	= DWMCI_CLKSEL64,
+	.quirks	= DWMCI_QUIRK_DISABLE_SMU,
+};
 
-int exynos_dwmmc_init(const void *blob)
-{
-	int compat_id;
-	int node_list[DWMMC_MAX_CH_NUM];
-	int err = 0, count;
+static const struct udevice_id exynos_dwmmc_ids[] = {
+	{
+		.compatible	= "samsung,exynos4412-dw-mshc",
+		.data		= (ulong)&exynos4_drv_data,
+	}, {
+		.compatible	= "samsung,exynos-dwmmc",
+		.data		= (ulong)&exynos5_drv_data,
+	}, {
+		.compatible	= "samsung,exynos7-dw-mshc-smu",
+		.data		= (ulong)&exynos7_smu_drv_data,
+	},
+	{ }
+};
 
-	compat_id = COMPAT_SAMSUNG_EXYNOS_DWMMC;
-
-	count = fdtdec_find_aliases_for_id(blob, "mmc",
-				compat_id, node_list, DWMMC_MAX_CH_NUM);
-	err = exynos_dwmci_process_node(blob, node_list, count);
-
-	return err;
-}
+U_BOOT_DRIVER(exynos_dwmmc_drv) = {
+	.name		= "exynos_dwmmc",
+	.id		= UCLASS_MMC,
+	.of_match	= exynos_dwmmc_ids,
+	.of_to_plat	= exynos_dwmmc_of_to_plat,
+	.bind		= exynos_dwmmc_bind,
+	.probe		= exynos_dwmmc_probe,
+	.ops		= &dm_dwmci_ops,
+	.priv_auto	= sizeof(struct dwmci_exynos_priv_data),
+	.plat_auto	= sizeof(struct exynos_mmc_plat),
+};
 #endif

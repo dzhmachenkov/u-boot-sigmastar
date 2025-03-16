@@ -4,8 +4,7 @@
 #include <linux/compiler.h>
 #include <linux/compat.h>
 
-#include <asm/errno.h>
-
+#include <linux/errno.h>
 
 /*
  * Kernel pointers have redundant information, so we can use a
@@ -23,17 +22,22 @@
 
 static inline void *ERR_PTR(long error)
 {
-	return (void *) error;
+	return (void *)(CONFIG_ERR_PTR_OFFSET + error);
 }
 
 static inline long PTR_ERR(const void *ptr)
 {
-	return (long) ptr;
+	return ((long)ptr - CONFIG_ERR_PTR_OFFSET);
 }
 
 static inline long IS_ERR(const void *ptr)
 {
-	return IS_ERR_VALUE((unsigned long)ptr);
+	return IS_ERR_VALUE((unsigned long)PTR_ERR(ptr));
+}
+
+static inline bool IS_ERR_OR_NULL(const void *ptr)
+{
+	return !ptr || IS_ERR_VALUE((unsigned long)PTR_ERR(ptr));
 }
 
 /**

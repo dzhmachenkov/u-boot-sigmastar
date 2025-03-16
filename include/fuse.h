@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * (C) Copyright 2009-2013 ADVANSEE
  * Benoît Thébaudeau <benoit.thebaudeau@advansee.com>
@@ -5,12 +6,12 @@
  * Based on the mpc512x iim code:
  * Copyright 2008 Silicon Turnkey Express, Inc.
  * Martha Marx <mmarx@silicontkx.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef _FUSE_H_
 #define _FUSE_H_
+
+#include <linux/types.h>
 
 /*
  * Read/Sense/Program/Override interface:

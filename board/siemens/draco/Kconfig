@@ -1,4 +1,4 @@
-if TARGET_DRACO
+if TARGET_THUBAN
 
 config SYS_BOARD
 	default "draco"
@@ -10,11 +10,11 @@ config SYS_SOC
 	default "am33xx"
 
 config SYS_CONFIG_NAME
-	default "draco"
+	default "draco-thuban"
 
 endif
 
-if TARGET_DXR2
+if TARGET_RASTABAN
 
 config SYS_BOARD
 	default "draco"
@@ -26,6 +26,22 @@ config SYS_SOC
 	default "am33xx"
 
 config SYS_CONFIG_NAME
-	default "dxr2"
+	default "draco-rastaban"
+
+endif
+
+if TARGET_ETAMIN
+
+config SYS_BOARD
+        default "draco"
+
+config SYS_VENDOR
+        default "siemens"
+
+config SYS_SOC
+        default "am33xx"
+
+config SYS_CONFIG_NAME
+        default "draco-etamin"
 
 endif

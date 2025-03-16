@@ -1,8 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0+
 /**
  * Copyright 2010-2011 Freescale Semiconductor
  * Author: Timur Tabi <timur@freescale.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  *
  * This file provides support for the ngPIXIS, a board-specific FPGA used on
  * some Freescale reference boards.
@@ -30,7 +29,6 @@
  *    boot from the alternate bank.
  */
 
-#include <common.h>
 #include <command.h>
 #include <asm/io.h>
 
@@ -172,7 +170,8 @@ void pixis_sysclk_set(unsigned long sysclk)
 	PIXIS_WRITE(sclk[2], sclk2);
 }
 
-int pixis_reset_cmd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
+int pixis_reset_cmd(struct cmd_tbl *cmdtp, int flag, int argc,
+		    char *const argv[])
 {
 	unsigned int i;
 	unsigned long sysclk;
@@ -234,15 +233,13 @@ int pixis_reset_cmd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
 	return 0;
 }
 
-#ifdef CONFIG_SYS_LONGHELP
-static char pixis_help_text[] =
+U_BOOT_LONGHELP(pixis,
 	"- hard reset to default bank\n"
 	"pixis_reset altbank - reset to alternate bank\n"
 #ifdef DEBUG
 	"pixis_reset dump - display the PIXIS registers\n"
 #endif
-	"pixis_reset sysclk <SYSCLK_freq> - reset with SYSCLK frequency(KHz)\n";
-#endif
+	"pixis_reset sysclk <SYSCLK_freq> - reset with SYSCLK frequency(KHz)\n");
 
 U_BOOT_CMD(
 	pixis_reset, CONFIG_SYS_MAXARGS, 1, pixis_reset_cmd,

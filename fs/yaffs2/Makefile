@@ -1,6 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0
 # Makefile for YAFFS direct test
-#
-#
 # YAFFS: Yet another Flash File System. A NAND-flash specific file system.
 #
 # Copyright (C) 2003 Aleph One Ltd.
@@ -8,13 +7,7 @@
 #
 # Created by Charles Manning <charles@aleph1.co.uk>
 #
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License version 2 as
-# published by the Free Software Foundation.
 #
-# NB Warning this Makefile does not include header dependencies.
-#
-# $Id: Makefile,v 1.15 2007/07/18 19:40:38 charles Exp $
 
 obj-y := \
 	yaffs_allocator.o yaffs_attribs.o yaffs_bitmap.o yaffs_uboot_glue.o\
@@ -23,7 +16,3 @@ obj-y := \
 	yaffs_packedtags1.o yaffs_packedtags2.o yaffs_qsort.o \
 	yaffs_summary.o yaffs_tagscompat.o yaffs_verify.o yaffs_yaffs1.o \
 	yaffs_yaffs2.o yaffs_mtdif.o yaffs_mtdif2.o
-
-ccflags-y = -DCONFIG_YAFFS_DIRECT -DCONFIG_YAFFS_SHORT_NAMES_IN_RAM \
-		-DCONFIG_YAFFS_YAFFS2 -DNO_Y_INLINE \
-		-DCONFIG_YAFFS_PROVIDE_DEFS -DCONFIG_YAFFSFS_PROVIDE_VALUES

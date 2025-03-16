@@ -1,8 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0+
 #
 # Copyright (c) 2014 Google, Inc
-#
-# SPDX-License-Identifier:      GPL-2.0+
 #
 # Intel microcode update tool
 
@@ -76,6 +75,49 @@ def ParseFile(fname):
         microcodes[name] = Microcode(name, data)
     return date, license_text, microcodes
 
+def ParseHeaderFiles(fname_list):
+    """Parse a list of header files and return the component parts
+
+    Args:
+        fname_list: List of files to parse
+    Returns:
+            date:         String containing date from the file's header
+            license_text: List of text lines for the license file
+            microcodes:   List of Microcode objects from the file
+    """
+    microcodes = {}
+    license_text = []
+    date = ''
+    name = None
+    for fname in fname_list:
+        name = os.path.basename(fname).lower()
+        name = os.path.splitext(name)[0]
+        data = []
+        with open(fname) as fd:
+            license_start = False
+            license_end = False
+            for line in fd:
+                line = line.rstrip()
+
+                if len(line) >= 2:
+                    if line[0] == '/' and line[1] == '*':
+                        license_start = True
+                        continue
+                    if line[0] == '*' and line[1] == '/':
+                        license_end = True
+                        continue
+                if license_start and not license_end:
+                    # Ignore blank line
+                    if len(line) > 0:
+                        license_text.append(line)
+                    continue
+                # Omit anything after the last comma
+                words = line.split(',')[:-1]
+                data += [word + ',' for word in words]
+        microcodes[name] = Microcode(name, data)
+    return date, license_text, microcodes
+
+
 def List(date, microcodes, model):
     """List the available microcode chunks
 
@@ -84,15 +126,15 @@ def List(date, microcodes, model):
         microcodes:     Dict of Microcode objects indexed by name
         model:          Model string to search for, or None
     """
-    print 'Date: %s' % date
+    print('Date: %s' % date)
     if model:
         mcode_list, tried = FindMicrocode(microcodes, model.lower())
-        print 'Matching models %s:' % (', '.join(tried))
+        print('Matching models %s:' % (', '.join(tried)))
     else:
-        print 'All models:'
-        mcode_list = [microcodes[m] for m in microcodes.keys()]
+        print('All models:')
+        mcode_list = [microcodes[m] for m in list(microcodes.keys())]
     for mcode in mcode_list:
-        print '%-20s: model %s' % (mcode.name, mcode.model)
+        print('%-20s: model %s' % (mcode.name, mcode.model))
 
 def FindMicrocode(microcodes, model):
     """Find all the microcode chunks which match the given model.
@@ -122,20 +164,20 @@ def FindMicrocode(microcodes, model):
     for i in range(3):
         abbrev = model[:-i] if i else model
         tried.append(abbrev)
-        for mcode in microcodes.values():
+        for mcode in list(microcodes.values()):
             if mcode.model.startswith(abbrev):
                 found.append(mcode)
         if found:
             break
     return found, tried
 
-def CreateFile(date, license_text, mcode, outfile):
+def CreateFile(date, license_text, mcodes, outfile):
     """Create a microcode file in U-Boot's .dtsi format
 
     Args:
         date:       String containing date of original microcode file
         license:    List of text lines for the license file
-        mcode:      Microcode object to write
+        mcodes:      Microcode objects to write (normally only 1)
         outfile:    Filename to write to ('-' for stdout)
     """
     out = '''/*%s
@@ -159,15 +201,22 @@ intel,processor-flags = <%#x>;
 data = <%s
 \t>;'''
     words = ''
-    for i in range(len(mcode.words)):
-        if not (i & 3):
-            words += '\n'
-        val = mcode.words[i]
-        # Change each word so it will be little-endian in the FDT
-        # This data is needed before RAM is available on some platforms so we
-        # cannot do an endianness swap on boot.
-        val = struct.unpack("<I", struct.pack(">I", val))[0]
-        words += '\t%#010x' % val
+    add_comments = len(mcodes) > 1
+    for mcode in mcodes:
+        if add_comments:
+            words += '\n/* %s */' % mcode.name
+        for i in range(len(mcode.words)):
+            if not (i & 3):
+                words += '\n'
+            val = mcode.words[i]
+            # Change each word so it will be little-endian in the FDT
+            # This data is needed before RAM is available on some platforms so
+            # we cannot do an endianness swap on boot.
+            val = struct.unpack("<I", struct.pack(">I", val))[0]
+            words += '\t%#010x' % val
+
+    # Use the first microcode for the headers
+    mcode = mcodes[0]
 
     # Take care to avoid adding a space before a tab
     text = ''
@@ -180,17 +229,17 @@ data = <%s
     args += [mcode.words[i] for i in range(7)]
     args.append(words)
     if outfile == '-':
-        print out % tuple(args)
+        print(out % tuple(args))
     else:
         if not outfile:
             if not os.path.exists(MICROCODE_DIR):
-                print >> sys.stderr, "Creating directory '%s'" % MICROCODE_DIR
+                print("Creating directory '%s'" % MICROCODE_DIR, file=sys.stderr)
                 os.makedirs(MICROCODE_DIR)
             outfile = os.path.join(MICROCODE_DIR, mcode.name + '.dtsi')
-            print >> sys.stderr, "Writing microcode for '%s' to '%s'" % (
-                     mcode.name, outfile)
+        print("Writing microcode for '%s' to '%s'" % (
+                ', '.join([mcode.name for mcode in mcodes]), outfile), file=sys.stderr)
         with open(outfile, 'w') as fd:
-            print >> fd, out % tuple(args)
+            print(out % tuple(args), file=fd)
 
 def MicrocodeTool():
     """Run the microcode tool"""
@@ -198,8 +247,12 @@ def MicrocodeTool():
     parser = OptionParser()
     parser.add_option('-d', '--mcfile', type='string', action='store',
                     help='Name of microcode.dat file')
+    parser.add_option('-H', '--headerfile', type='string', action='append',
+                    help='Name of .h file containing microcode')
     parser.add_option('-m', '--model', type='string', action='store',
-                    help='Model name to extract')
+                    help="Model name to extract ('all' for all)")
+    parser.add_option('-M', '--multiple', type='string', action='store',
+                    help="Allow output of multiple models")
     parser.add_option('-o', '--outfile', type='string', action='store',
                     help='Filename to use for output (- for stdout), default is'
                     ' %s/<name>.dtsi' % MICROCODE_DIR)
@@ -224,28 +277,38 @@ def MicrocodeTool():
     if cmd not in commands:
         parser.error("Unknown command '%s'" % cmd)
 
-    if not options.mcfile:
-        parser.error('You must specify a microcode file')
-    date, license_text, microcodes = ParseFile(options.mcfile)
+    if (not not options.mcfile) != (not not options.mcfile):
+        parser.error("You must specify either header files or a microcode file, not both")
+    if options.headerfile:
+        date, license_text, microcodes = ParseHeaderFiles(options.headerfile)
+    elif options.mcfile:
+        date, license_text, microcodes = ParseFile(options.mcfile)
+    else:
+        parser.error('You must specify a microcode file (or header files)')
 
     if cmd == 'list':
         List(date, microcodes, options.model)
     elif cmd == 'license':
-        print '\n'.join(license_text)
+        print('\n'.join(license_text))
     elif cmd == 'create':
         if not options.model:
             parser.error('You must specify a model to create')
         model = options.model.lower()
-        mcode_list, tried = FindMicrocode(microcodes, model)
+        if options.model == 'all':
+            options.multiple = True
+            mcode_list = list(microcodes.values())
+            tried = []
+        else:
+            mcode_list, tried = FindMicrocode(microcodes, model)
         if not mcode_list:
             parser.error("Unknown model '%s' (%s) - try 'list' to list" %
                         (model, ', '.join(tried)))
-        if len(mcode_list) > 1:
+        if not options.multiple and len(mcode_list) > 1:
             parser.error("Ambiguous model '%s' (%s) matched %s - try 'list' "
                         "to list or specify a particular file" %
                         (model, ', '.join(tried),
                         ', '.join([m.name for m in mcode_list])))
-        CreateFile(date, license_text, mcode_list[0], options.outfile)
+        CreateFile(date, license_text, mcode_list, options.outfile)
     else:
         parser.error("Unknown command '%s'" % cmd)
 

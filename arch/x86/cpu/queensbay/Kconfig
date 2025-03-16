@@ -1,53 +1,29 @@
+# SPDX-License-Identifier: GPL-2.0+
 #
 # Copyright (C) 2014, Bin Meng <bmeng.cn@gmail.com>
-#
-# SPDX-License-Identifier:	GPL-2.0+
-#
 
 config INTEL_QUEENSBAY
 	bool
 	select HAVE_FSP
 	select HAVE_CMC
+	select ARCH_EARLY_INIT_R
+	imply AHCI_PCI
+	imply ICH_SPI
+	imply INTEL_ICH6_GPIO
+	imply MMC
+	imply MMC_PCI
+	imply MMC_SDHCI
+	imply MMC_SDHCI_SDMA
+	imply PCH_GBE
+	imply SCSI
+	imply SCSI_AHCI
+	imply SPI_FLASH
+	imply SYS_NS16550
+	imply USB
+	imply USB_EHCI_HCD
+	imply VIDEO_VESA
 
 if INTEL_QUEENSBAY
-
-config HAVE_FSP
-	bool "Add an Firmware Support Package binary"
-	help
-	  Select this option to add an Firmware Support Package binary to
-	  the resulting U-Boot image. It is a binary blob which U-Boot uses
-	  to set up SDRAM and other chipset specific initialization.
-
-	  Note: Without this binary U-Boot will not be able to set up its
-	  SDRAM so will not boot.
-
-config FSP_FILE
-	string "Firmware Support Package binary filename"
-	depends on HAVE_FSP
-	default "fsp.bin"
-	help
-	  The filename of the file to use as Firmware Support Package binary
-	  in the board directory.
-
-config FSP_ADDR
-	hex "Firmware Support Package binary location"
-	depends on HAVE_FSP
-	default 0xfffc0000
-	help
-	  FSP is not Position Independent Code (PIC) and the whole FSP has to
-	  be rebased if it is placed at a location which is different from the
-	  perferred base address specified during the FSP build. Use Intel's
-	  Binary Configuration Tool (BCT) to do the rebase.
-
-	  The default base address of 0xfffc0000 indicates that the binary must
-	  be located at offset 0xc0000 from the beginning of a 1MB flash device.
-
-config FSP_TEMP_RAM_ADDR
-	hex
-	default 0x2000000
-	help
-	  Stack top address which is used in FspInit after DRAM is ready and
-	  CAR is disabled.
 
 config HAVE_CMC
 	bool "Add a Chipset Micro Code state machine binary"
@@ -75,5 +51,17 @@ config CMC_ADDR
 
 	  The default base address of 0xfffb0000 indicates that the binary must
 	  be located at offset 0xb0000 from the beginning of a 1MB flash device.
+
+config CPU_ADDR_BITS
+	int
+	default 32
+
+config DISABLE_IGD
+	bool "Disable Integrated Graphics Device (IGD)"
+	help
+	  Disable the Integrated Graphics Device (IGD) so that it does not
+	  show in the PCI configuration space as a VGA disaplay controller.
+	  This gives a chance for U-Boot to run PCI/PCIe based graphics
+	  card's VGA BIOS and use that card for the graphics console.
 
 endif

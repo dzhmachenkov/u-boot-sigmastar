@@ -1,11 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2009 Industrie Dial Face S.p.A.
  * Luigi 'Comio' Mantellini <luigi.mantellini@idf-hit.com>
  *
  * (C) Copyright 2001
  * Gerald Van Baren, Custom IDEAS, vanbaren@cideas.com.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /*
@@ -13,14 +12,10 @@
  * channel.
  */
 
-#include <common.h>
 #include <ioports.h>
 #include <ppc_asm.tmpl>
 #include <miiphy.h>
-
-#define BB_MII_RELOCATE(v,off) (v += (v?off:0))
-
-DECLARE_GLOBAL_DATA_PTR;
+#include <asm/global_data.h>
 
 #ifndef CONFIG_BITBANGMII_MULTI
 
@@ -106,25 +101,15 @@ int bb_miiphy_buses_num = sizeof(bb_miiphy_buses) /
 			  sizeof(bb_miiphy_buses[0]);
 #endif
 
-void bb_miiphy_init(void)
+int bb_miiphy_init(void)
 {
 	int i;
 
-	for (i = 0; i < bb_miiphy_buses_num; i++) {
-#if defined(CONFIG_NEEDS_MANUAL_RELOC)
-		/* Relocate the hook pointers*/
-		BB_MII_RELOCATE(bb_miiphy_buses[i].init, gd->reloc_off);
-		BB_MII_RELOCATE(bb_miiphy_buses[i].mdio_active, gd->reloc_off);
-		BB_MII_RELOCATE(bb_miiphy_buses[i].mdio_tristate, gd->reloc_off);
-		BB_MII_RELOCATE(bb_miiphy_buses[i].set_mdio, gd->reloc_off);
-		BB_MII_RELOCATE(bb_miiphy_buses[i].get_mdio, gd->reloc_off);
-		BB_MII_RELOCATE(bb_miiphy_buses[i].set_mdc, gd->reloc_off);
-		BB_MII_RELOCATE(bb_miiphy_buses[i].delay, gd->reloc_off);
-#endif
-		if (bb_miiphy_buses[i].init != NULL) {
+	for (i = 0; i < bb_miiphy_buses_num; i++)
+		if (bb_miiphy_buses[i].init != NULL)
 			bb_miiphy_buses[i].init(&bb_miiphy_buses[i]);
-		}
-	}
+
+	return 0;
 }
 
 static inline struct bb_miiphy_bus *bb_miiphy_getbus(const char *devname)
@@ -230,21 +215,15 @@ static void miiphy_pre(struct bb_miiphy_bus *bus, char read,
  * Returns:
  *   0 on success
  */
-int bb_miiphy_read(const char *devname, unsigned char addr,
-		   unsigned char reg, unsigned short *value)
+int bb_miiphy_read(struct mii_dev *miidev, int addr, int devad, int reg)
 {
-	short rdreg; /* register working value */
+	unsigned short rdreg; /* register working value */
 	int v;
 	int j; /* counter */
 	struct bb_miiphy_bus *bus;
 
-	bus = bb_miiphy_getbus(devname);
+	bus = bb_miiphy_getbus(miidev->name);
 	if (bus == NULL) {
-		return -1;
-	}
-
-	if (value == NULL) {
-		puts("NULL value pointer\n");
 		return -1;
 	}
 
@@ -267,8 +246,7 @@ int bb_miiphy_read(const char *devname, unsigned char addr,
 			bus->set_mdc(bus, 1);
 			bus->delay(bus);
 		}
-		/* There is no PHY, set value to 0xFFFF and return */
-		*value = 0xFFFF;
+		/* There is no PHY, return */
 		return -1;
 	}
 
@@ -294,15 +272,12 @@ int bb_miiphy_read(const char *devname, unsigned char addr,
 	bus->set_mdc(bus, 1);
 	bus->delay(bus);
 
-	*value = rdreg;
-
 #ifdef DEBUG
-	printf ("miiphy_read(0x%x) @ 0x%x = 0x%04x\n", reg, addr, *value);
+	printf("miiphy_read(0x%x) @ 0x%x = 0x%04x\n", reg, addr, rdreg);
 #endif
 
-	return 0;
+	return rdreg;
 }
-
 
 /*****************************************************************************
  *
@@ -311,13 +286,13 @@ int bb_miiphy_read(const char *devname, unsigned char addr,
  * Returns:
  *   0 on success
  */
-int bb_miiphy_write (const char *devname, unsigned char addr,
-		     unsigned char reg, unsigned short value)
+int bb_miiphy_write(struct mii_dev *miidev, int addr, int devad, int reg,
+		    u16 value)
 {
 	struct bb_miiphy_bus *bus;
 	int j;			/* counter */
 
-	bus = bb_miiphy_getbus(devname);
+	bus = bb_miiphy_getbus(miidev->name);
 	if (bus == NULL) {
 		/* Bus not found! */
 		return -1;

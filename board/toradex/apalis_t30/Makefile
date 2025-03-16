@@ -1,6 +1,6 @@
 # Copyright (c) 2014 Marcel Ziswiler
 # SPDX-License-Identifier:      GPL-2.0+
 
-include $(srctree)/board/nvidia/common/common.mk
+obj-$(CONFIG_XPL_BUILD) += apalis_t30-spl.o
 
 obj-y	+= apalis_t30.o

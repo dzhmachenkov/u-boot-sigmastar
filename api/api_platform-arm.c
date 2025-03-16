@@ -1,9 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2007 Semihalf
  *
  * Written by: Rafal Jaworowski <raj@semihalf.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  *
  * This file contains routines that fetch data from ARM-dependent sources
  * (bd_info etc.)
@@ -13,7 +12,6 @@
 #include <linux/types.h>
 #include <api_public.h>
 
-#include <asm/u-boot.h>
 #include <asm/global_data.h>
 
 #include "api_private.h"

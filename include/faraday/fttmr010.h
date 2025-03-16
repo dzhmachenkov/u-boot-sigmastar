@@ -1,8 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * (C) Copyright 2009 Faraday Technology
  * Po-Yu Chuang <ratbert@faraday-tech.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /*
@@ -27,6 +26,7 @@ struct fttmr010 {
 	unsigned int	cr;			/* 0x30 */
 	unsigned int	interrupt_state;	/* 0x34 */
 	unsigned int	interrupt_mask;		/* 0x38 */
+	unsigned int	revision;		/* 0x3c */
 };
 
 /*

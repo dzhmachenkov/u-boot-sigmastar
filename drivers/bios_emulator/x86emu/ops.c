@@ -41,7 +41,7 @@
 * to the 256 byte-"opcodes" found on the 8086.	The table which
 * dispatches this is found in the files optab.[ch].
 *
-* Each opcode proc has a comment preceeding it which gives it's table
+* Each opcode proc has a comment preceding it which gives it's table
 * address.  Several opcodes are missing (undefined) in the table.
 *
 * Each proc includes information for decoding (DECODE_PRINTF and
@@ -72,7 +72,7 @@
 *
 ****************************************************************************/
 
-#include <common.h>
+#include <linux/printk.h>
 #include "x86emu/x86emui.h"
 
 /*----------------------------- Implementation ----------------------------*/
@@ -179,7 +179,7 @@ void x86emuOp_illegal_op(
 {
     START_OF_INSTR();
     if (M.x86.R_SP != 0) {
-	ERR_PRINTF("ILLEGAL X86 OPCODE\n");
+	DB(printf("ILLEGAL X86 OPCODE\n"));
 	TRACE_REGS();
 	DB( printk("%04x:%04x: %02X ILLEGAL X86 OPCODE!\n",
 	    M.x86.R_CS, M.x86.R_IP-1,op1));

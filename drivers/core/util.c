@@ -1,37 +1,30 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (c) 2013 Google, Inc
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
-#include <common.h>
 #include <vsprintf.h>
+#include <dm/device.h>
+#include <dm/ofnode.h>
+#include <dm/read.h>
+#include <dm/util.h>
+#include <linux/libfdt.h>
+#include <linux/list.h>
 
-void dm_warn(const char *fmt, ...)
+#if CONFIG_IS_ENABLED(OF_REAL)
+int pci_get_devfn(struct udevice *dev)
 {
-	va_list args;
+	struct fdt_pci_addr addr;
+	int ret;
 
-	va_start(args, fmt);
-	vprintf(fmt, args);
-	va_end(args);
+	/* Extract the devfn from fdt_pci_addr */
+	ret = ofnode_read_pci_addr(dev_ofnode(dev), FDT_PCI_SPACE_CONFIG,
+				   "reg", &addr, NULL);
+	if (ret) {
+		if (ret != -ENOENT)
+			return -EINVAL;
+	}
+
+	return addr.phys_hi & 0xff00;
 }
-
-void dm_dbg(const char *fmt, ...)
-{
-	va_list args;
-
-	va_start(args, fmt);
-	vprintf(fmt, args);
-	va_end(args);
-}
-
-int list_count_items(struct list_head *head)
-{
-	struct list_head *node;
-	int count = 0;
-
-	list_for_each(node, head)
-		count++;
-
-	return count;
-}
+#endif

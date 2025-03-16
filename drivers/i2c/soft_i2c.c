@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2009
  * Heiko Schocher, DENX Software Engineering, hs@denx.de.
@@ -6,21 +7,15 @@
  * (C) Copyright 2001, 2002
  * Wolfgang Denk, DENX Software Engineering, wd@denx.de.
  *
- * SPDX-License-Identifier:	GPL-2.0+
- *
  * This has been changed substantially by Gerald Van Baren, Custom IDEAS,
  * vanbaren@cideas.com.  It was heavily influenced by LiMon, written by
  * Neil Russell.
+ *
+ * NOTE: This driver should be converted to driver model before June 2017.
+ * Please see doc/driver-model/i2c-howto.rst for instructions.
  */
 
-#include <common.h>
-#ifdef	CONFIG_MPC8260			/* only valid for MPC8260 */
-#include <ioports.h>
-#include <asm/io.h>
-#endif
-#if defined(CONFIG_AVR32)
-#include <asm/arch/portmux.h>
-#endif
+#include <config.h>
 #if defined(CONFIG_AT91FAMILY)
 #include <asm/io.h>
 #include <asm/arch/hardware.h>
@@ -29,10 +24,9 @@
 #include <asm/arch/gpio.h>
 #endif
 #endif
-#if defined(CONFIG_MPC852T) || defined(CONFIG_MPC866)
-#include <asm/io.h>
-#endif
 #include <i2c.h>
+#include <asm/global_data.h>
+#include <linux/delay.h>
 
 #if defined(CONFIG_SOFT_I2C_GPIO_SCL)
 # include <asm/gpio.h>
@@ -91,22 +85,7 @@
 DECLARE_GLOBAL_DATA_PTR;
 
 #ifndef	I2C_SOFT_DECLARATIONS
-# if defined(CONFIG_MPC8260)
-#  define I2C_SOFT_DECLARATIONS volatile ioport_t *iop = \
-		ioport_addr((immap_t *)CONFIG_SYS_IMMR, I2C_PORT);
-# elif defined(CONFIG_8xx)
-#  define I2C_SOFT_DECLARATIONS	volatile immap_t *immr = \
-		(immap_t *)CONFIG_SYS_IMMR;
-# else
 #  define I2C_SOFT_DECLARATIONS
-# endif
-#endif
-
-#if !defined(CONFIG_SYS_I2C_SOFT_SPEED)
-#define CONFIG_SYS_I2C_SOFT_SPEED CONFIG_SYS_I2C_SPEED
-#endif
-#if !defined(CONFIG_SYS_I2C_SOFT_SLAVE)
-#define CONFIG_SYS_I2C_SOFT_SLAVE CONFIG_SYS_I2C_SLAVE
 #endif
 
 /*-----------------------------------------------------------------------
@@ -116,7 +95,6 @@ DECLARE_GLOBAL_DATA_PTR;
 
 #define I2C_ACK		0		/* PD_SDA level to ack a byte */
 #define I2C_NOACK	1		/* PD_SDA level to noack a byte */
-
 
 #ifdef DEBUG_I2C
 #define PRINTD(fmt,args...)	do {	\
@@ -129,16 +107,13 @@ DECLARE_GLOBAL_DATA_PTR;
 /*-----------------------------------------------------------------------
  * Local functions
  */
-#if !defined(CONFIG_SYS_I2C_INIT_BOARD)
 static void  send_reset	(void);
-#endif
 static void  send_start	(void);
 static void  send_stop	(void);
 static void  send_ack	(int);
 static int   write_byte	(uchar byte);
 static uchar read_byte	(int);
 
-#if !defined(CONFIG_SYS_I2C_INIT_BOARD)
 /*-----------------------------------------------------------------------
  * Send a reset sequence consisting of 9 clocks with the data signal high
  * to clock any confused device back into an idle state.  Also send a
@@ -166,7 +141,6 @@ static void send_reset(void)
 	send_stop();
 	I2C_TRISTATE;
 }
-#endif
 
 /*-----------------------------------------------------------------------
  * START: High -> Low on SDA while SCL is High
@@ -299,12 +273,6 @@ static uchar read_byte(int ack)
  */
 static void soft_i2c_init(struct i2c_adapter *adap, int speed, int slaveaddr)
 {
-#if defined(CONFIG_SYS_I2C_INIT_BOARD)
-	/* call board specific i2c bus reset routine before accessing the   */
-	/* environment, which might be in a chip on that bus. For details   */
-	/* about this problem see doc/I2C_Edge_Conditions.                  */
-	i2c_init_board();
-#else
 	/*
 	 * WARNING: Do NOT save speed in a static variable: if the
 	 * I2C routines are called before RAM is initialized (to read
@@ -312,7 +280,6 @@ static void soft_i2c_init(struct i2c_adapter *adap, int speed, int slaveaddr)
 	 * system will crash.
 	 */
 	send_reset ();
-#endif
 }
 
 /*-----------------------------------------------------------------------
@@ -448,28 +415,7 @@ static int  soft_i2c_write(struct i2c_adapter *adap, uchar chip, uint addr,
 /*
  * Register soft i2c adapters
  */
-U_BOOT_I2C_ADAP_COMPLETE(soft0, soft_i2c_init, soft_i2c_probe,
+U_BOOT_I2C_ADAP_COMPLETE(soft00, soft_i2c_init, soft_i2c_probe,
 			 soft_i2c_read, soft_i2c_write, NULL,
 			 CONFIG_SYS_I2C_SOFT_SPEED, CONFIG_SYS_I2C_SOFT_SLAVE,
 			 0)
-#if defined(I2C_SOFT_DECLARATIONS2)
-U_BOOT_I2C_ADAP_COMPLETE(soft1, soft_i2c_init, soft_i2c_probe,
-			 soft_i2c_read, soft_i2c_write, NULL,
-			 CONFIG_SYS_I2C_SOFT_SPEED_2,
-			 CONFIG_SYS_I2C_SOFT_SLAVE_2,
-			 1)
-#endif
-#if defined(I2C_SOFT_DECLARATIONS3)
-U_BOOT_I2C_ADAP_COMPLETE(soft2, soft_i2c_init, soft_i2c_probe,
-			 soft_i2c_read, soft_i2c_write, NULL,
-			 CONFIG_SYS_I2C_SOFT_SPEED_3,
-			 CONFIG_SYS_I2C_SOFT_SLAVE_3,
-			 2)
-#endif
-#if defined(I2C_SOFT_DECLARATIONS4)
-U_BOOT_I2C_ADAP_COMPLETE(soft3, soft_i2c_init, soft_i2c_probe,
-			 soft_i2c_read, soft_i2c_write, NULL,
-			 CONFIG_SYS_I2C_SOFT_SPEED_4,
-			 CONFIG_SYS_I2C_SOFT_SLAVE_4,
-			 3)
-#endif

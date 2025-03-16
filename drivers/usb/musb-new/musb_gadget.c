@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * MUSB OTG driver peripheral support
  *
@@ -5,35 +6,12 @@
  * Copyright (C) 2005-2006 by Texas Instruments
  * Copyright (C) 2006-2007 Nokia Corporation
  * Copyright (C) 2009 MontaVista Software, Inc. <source@mvista.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA
- *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN
- * NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF
- * USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
- * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
  */
 
 #ifndef __UBOOT__
+#include <log.h>
+#include <dm/device_compat.h>
+#include <dm/devres.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/timer.h>
@@ -44,13 +22,15 @@
 #include <linux/dma-mapping.h>
 #include <linux/slab.h>
 #else
-#include <common.h>
+#include <dm.h>
+#include <dm/device_compat.h>
+#include <linux/bug.h>
+#include <linux/printk.h>
 #include <linux/usb/ch9.h>
 #include "linux-compat.h"
 #endif
 
 #include "musb_core.h"
-
 
 /* MUSB PERIPHERAL status 3-mar-2006:
  *
@@ -99,7 +79,7 @@
 #define is_buffer_mapped(req) (is_dma_capable() && \
 					(req->map_state != UN_MAPPED))
 
-#ifndef CONFIG_MUSB_PIO_ONLY
+#ifndef CONFIG_USB_MUSB_PIO_ONLY
 /* Maps the buffer to dma  */
 
 static inline void map_dma_buffer(struct musb_request *request,
@@ -293,7 +273,6 @@ static inline int max_ep_writesize(struct musb *musb, struct musb_ep *ep)
 		return ep->packet_sz;
 }
 
-
 #ifdef CONFIG_USB_INVENTRA_DMA
 
 /* Peripheral tx (IN) using Mentor DMA works as follows:
@@ -382,7 +361,7 @@ static void txstate(struct musb *musb, struct musb_request *req)
 			epnum, musb_ep->packet_sz, fifo_count,
 			csr);
 
-#ifndef	CONFIG_MUSB_PIO_ONLY
+#ifndef	CONFIG_USB_MUSB_PIO_ONLY
 	if (is_buffer_mapped(req)) {
 		struct dma_controller	*c = musb->dma_controller;
 		size_t request_size;
@@ -1014,8 +993,8 @@ void musb_g_rx(struct musb *musb, u8 epnum)
 				&& (musb_ep->dma->actual_len
 					== musb_ep->packet_sz)) {
 			/* In double buffer case, continue to unload fifo if
- 			 * there is Rx packet in FIFO.
- 			 **/
+			 * there is Rx packet in FIFO.
+			 **/
 			csr = musb_readw(epio, MUSB_RXCSR);
 			if ((csr & MUSB_RXCSR_RXPKTRDY) &&
 				hw_ep->rx_double_buffered)
@@ -1207,6 +1186,7 @@ static int musb_gadget_enable(struct usb_ep *ep,
 	} else
 		musb_ep->dma = NULL;
 
+	musb_ep->end_point.desc = desc;
 	musb_ep->desc = desc;
 	musb_ep->busy = 0;
 	musb_ep->wedged = 0;
@@ -1264,9 +1244,7 @@ static int musb_gadget_disable(struct usb_ep *ep)
 	}
 
 	musb_ep->desc = NULL;
-#ifndef __UBOOT__
 	musb_ep->end_point.desc = NULL;
-#endif
 
 	/* abort all pending DMA and requests */
 	nuke(musb_ep, -ESHUTDOWN);
@@ -1800,6 +1778,14 @@ static int musb_gadget_start(struct usb_gadget *g,
 		struct usb_gadget_driver *driver);
 static int musb_gadget_stop(struct usb_gadget *g,
 		struct usb_gadget_driver *driver);
+#else
+static int musb_gadget_stop(struct usb_gadget *g)
+{
+	struct musb	*musb = gadget_to_musb(g);
+
+	musb_stop(musb);
+	return 0;
+}
 #endif
 
 static const struct usb_gadget_ops musb_gadget_operations = {
@@ -1810,6 +1796,9 @@ static const struct usb_gadget_ops musb_gadget_operations = {
 	.vbus_draw		= musb_gadget_vbus_draw,
 	.pullup			= musb_gadget_pullup,
 #ifndef __UBOOT__
+	.udc_start		= musb_gadget_start,
+	.udc_stop		= musb_gadget_stop,
+#else
 	.udc_start		= musb_gadget_start,
 	.udc_stop		= musb_gadget_stop,
 #endif
@@ -1831,7 +1820,6 @@ static void musb_gadget_release(struct device *dev)
 	dev_dbg(dev, "%s\n", __func__);
 }
 #endif
-
 
 static void __devinit
 init_peripheral_ep(struct musb *musb, struct musb_ep *ep, u8 epnum, int is_in)
@@ -1975,7 +1963,7 @@ void musb_gadget_cleanup(struct musb *musb)
  * -ENOMEM no memory to perform the operation
  *
  * @param driver the gadget driver
- * @return <0 if error, 0 if everything is fine
+ * Return: <0 if error, 0 if everything is fine
  */
 #ifndef __UBOOT__
 static int musb_gadget_start(struct usb_gadget *g,
@@ -2293,7 +2281,6 @@ __acquires(musb->lock)
 	/* clear HR */
 	else if (devctl & MUSB_DEVCTL_HR)
 		musb_writeb(mbase, MUSB_DEVCTL, MUSB_DEVCTL_SESSION);
-
 
 	/* what speed did we negotiate? */
 	power = musb_readb(mbase, MUSB_POWER);

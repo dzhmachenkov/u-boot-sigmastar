@@ -1,7 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright 2014 Broadcom Corporation.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef _BCM_SF2_ETH_GMAC_H_
@@ -18,7 +17,6 @@
 #define GMAC0_INT_STATUS_ADDR		(GMAC0_REG_BASE + 0x020)
 #define GMAC0_INTR_RECV_LAZY_ADDR	(GMAC0_REG_BASE + 0x100)
 #define GMAC0_PHY_CTRL_ADDR		(GMAC0_REG_BASE + 0x188)
-
 
 #define GMAC_DMA_PTR_OFFSET		0x04
 #define GMAC_DMA_ADDR_LOW_OFFSET	0x08

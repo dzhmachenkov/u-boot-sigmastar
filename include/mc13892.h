@@ -1,12 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * (C) Copyright 2010
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
  * (C) Copyright 2009 Freescale Semiconductor, Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
-
 
 #ifndef __MC13892_H__
 #define __MC13892_H__

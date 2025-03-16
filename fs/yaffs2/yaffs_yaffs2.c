@@ -21,6 +21,7 @@
 #include "yaffs_verify.h"
 #include "yaffs_attribs.h"
 #include "yaffs_summary.h"
+#include <dm/devres.h>
 
 /*
  * Checkpoints are really no benefit on very small partitions.
@@ -590,7 +591,6 @@ static int yaffs2_rd_checkpt_objs(struct yaffs_dev *dev)
 	int ok = 1;
 	int done = 0;
 	LIST_HEAD(hard_list);
-
 
 	while (ok && !done) {
 		ok = (yaffs2_checkpt_rd(dev, &cp, sizeof(cp)) == sizeof(cp));

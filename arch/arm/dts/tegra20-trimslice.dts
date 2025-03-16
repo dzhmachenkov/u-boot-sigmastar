@@ -11,10 +11,9 @@
 	};
 
 	aliases {
-		usb0 = "/usb@c5008000";
-		usb1 = "/usb@c5000000";
-		sdhci0 = "/sdhci@c8000600";
-		sdhci1 = "/sdhci@c8000000";
+		usb0 = "/usb@c5000000";
+		mmc0 = "/sdhci@c8000600";
+		mmc1 = "/sdhci@c8000000";
 		spi0 = "/spi@7000c380";
 	};
 
@@ -26,28 +25,18 @@
 		clock-frequency = <216000000>;
 	};
 
-	i2c@7000c000 {
-		status = "disabled";
-	};
-
 	spi@7000c380 {
 		status = "okay";
-		spi-max-frequency = <25000000>;
+		spi-max-frequency = <48000000>;
+
+		flash@0 {
+			compatible = "winbond,w25q80bl", "jedec,spi-nor";
+			reg = <0>;
+			spi-max-frequency = <48000000>;
+		};
 	};
 
-	i2c@7000c400 {
-		status = "disabled";
-	};
-
-	i2c@7000c500 {
-		status = "disabled";
-	};
-
-	i2c@7000d000 {
-		status = "disabled";
-	};
-
-	pcie-controller@80003000 {
+	pcie@80003000 {
 		status = "okay";
 
 		avdd-pex-supply = <&pci_vdd_reg>;
@@ -62,11 +51,8 @@
 	};
 
 	usb@c5000000 {
-		nvidia,vbus-gpio = <&gpio 170 0>; /* PV2 */
-	};
-
-	usb@c5004000 {
-		status = "disabled";
+		status = "okay";
+		nvidia,vbus-gpio = <&gpio TEGRA_GPIO(V, 2) GPIO_ACTIVE_HIGH>;
 	};
 
 	sdhci@c8000000 {
@@ -76,9 +62,22 @@
 
 	sdhci@c8000600 {
 		status = "okay";
-		cd-gpios = <&gpio 121 1>; /* gpio PP1 */
-		wp-gpios = <&gpio 122 0>; /* gpio PP2 */
+		cd-gpios = <&gpio TEGRA_GPIO(P, 1) GPIO_ACTIVE_LOW>;
+		wp-gpios = <&gpio TEGRA_GPIO(P, 2) GPIO_ACTIVE_HIGH>;
 		bus-width = <4>;
+	};
+
+	clocks {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		clk32k_in: clock@0 {
+			compatible = "fixed-clock";
+			reg=<0>;
+			#clock-cells = <0>;
+			clock-frequency = <32768>;
+		};
 	};
 
 	regulators {
@@ -111,7 +110,7 @@
 			regulator-min-microvolt = <5000000>;
 			regulator-max-microvolt = <5000000>;
 			enable-active-high;
-			gpio = <&gpio TEGRA_GPIO(V, 2) 0>;
+			gpio = <&gpio TEGRA_GPIO(V, 2) GPIO_ACTIVE_HIGH>;
 			regulator-always-on;
 			regulator-boot-on;
 		};
@@ -135,4 +134,8 @@
 		};
 	};
 
+};
+
+&uarta {
+	status = "okay";
 };

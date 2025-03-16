@@ -1,7 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright (C) 2012 Samsung Electronics
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef _S3C24X0_I2C_H
@@ -55,8 +54,32 @@ struct s3c24x0_i2c_bus {
 	struct exynos5_hsi2c *hsregs;
 	int is_highspeed;	/* High speed type, rather than I2C */
 	unsigned clock_frequency;
+#if IS_ENABLED(CONFIG_ARCH_EXYNOS4) || IS_ENABLED(CONFIG_ARCH_EXYNOS5)
 	int id;
+#endif
 	unsigned clk_cycle;
 	unsigned clk_div;
 };
+
+#define	I2C_WRITE	0
+#define I2C_READ	1
+
+#define I2C_OK		0
+#define I2C_NOK		1
+#define I2C_NACK	2
+#define I2C_NOK_LA	3	/* Lost arbitration */
+#define I2C_NOK_TOUT	4	/* time out */
+
+/* S3C I2C Controller bits */
+#define I2CSTAT_BSY	0x20	/* Busy bit */
+#define I2CSTAT_NACK	0x01	/* Nack bit */
+#define I2CCON_ACKGEN	0x80	/* Acknowledge generation */
+#define I2CCON_IRPND	0x10	/* Interrupt pending bit */
+#define I2C_MODE_MT	0xC0	/* Master Transmit Mode */
+#define I2C_MODE_MR	0x80	/* Master Receive Mode */
+#define I2C_START_STOP	0x20	/* START / STOP */
+#define I2C_TXRX_ENA	0x10	/* I2C Tx/Rx enable */
+
+#define I2C_TIMEOUT_MS 10		/* 10 ms */
+
 #endif /* _S3C24X0_I2C_H */

@@ -3,20 +3,16 @@
  * Copyright (C) 2016 The Android Open Source Project
  */
 
-#include <common.h>
+#include <env.h>
 #include <fastboot.h>
 #include <fastboot-internal.h>
-#include <fs.h>
-#include <version.h>
-#include <asm-generic/errno.h>
-
-#ifdef CONFIG_FASTBOOT_FLASH_MMC
 #include <fb_mmc.h>
-#elif defined(CONFIG_FASTBOOT_FLASH_NAND)
 #include <fb_nand.h>
-#elif defined(CONFIG_FASTBOOT_FLASH_CUS)
-#include <fb_cus.h>
-#endif
+#include <fs.h>
+#include <part.h>
+#include <version.h>
+#include <vsprintf.h>
+#include <linux/printk.h>
 
 static void getvar_version(char *var_parameter, char *response);
 static void getvar_version_bootloader(char *var_parameter, char *response);
@@ -26,70 +22,77 @@ static void getvar_version_baseband(char *var_parameter, char *response);
 static void getvar_product(char *var_parameter, char *response);
 static void getvar_platform(char *var_parameter, char *response);
 static void getvar_current_slot(char *var_parameter, char *response);
-#ifdef CONFIG_FASTBOOT_FLASH
 static void getvar_has_slot(char *var_parameter, char *response);
-#endif
-#ifdef CONFIG_FASTBOOT_FLASH_MMC
 static void getvar_partition_type(char *part_name, char *response);
-#endif
-#ifdef CONFIG_FASTBOOT_FLASH
 static void getvar_partition_size(char *part_name, char *response);
-#endif
 static void getvar_is_userspace(char *var_parameter, char *response);
 
 static const struct {
 	const char *variable;
+	bool list;
 	void (*dispatch)(char *var_parameter, char *response);
 } getvar_dispatch[] = {
 	{
 		.variable = "version",
-		.dispatch = getvar_version
+		.dispatch = getvar_version,
+		.list = true,
 	}, {
 		.variable = "version-bootloader",
-		.dispatch = getvar_version_bootloader
+		.dispatch = getvar_version_bootloader,
+		.list = true
 	}, {
 		.variable = "downloadsize",
-		.dispatch = getvar_downloadsize
+		.dispatch = getvar_downloadsize,
+		.list = true
 	}, {
 		.variable = "max-download-size",
-		.dispatch = getvar_downloadsize
+		.dispatch = getvar_downloadsize,
+		.list = true
 	}, {
 		.variable = "serialno",
-		.dispatch = getvar_serialno
+		.dispatch = getvar_serialno,
+		.list = true
 	}, {
 		.variable = "version-baseband",
-		.dispatch = getvar_version_baseband
+		.dispatch = getvar_version_baseband,
+		.list = true
 	}, {
 		.variable = "product",
-		.dispatch = getvar_product
+		.dispatch = getvar_product,
+		.list = true
 	}, {
 		.variable = "platform",
-		.dispatch = getvar_platform
+		.dispatch = getvar_platform,
+		.list = true
 	}, {
 		.variable = "current-slot",
-		.dispatch = getvar_current_slot
-#ifdef CONFIG_FASTBOOT_FLASH
+		.dispatch = getvar_current_slot,
+		.list = true
+#if IS_ENABLED(CONFIG_FASTBOOT_FLASH)
 	}, {
 		.variable = "has-slot",
-		.dispatch = getvar_has_slot
+		.dispatch = getvar_has_slot,
+		.list = false
 #endif
-#ifdef CONFIG_FASTBOOT_FLASH_MMC
+#if IS_ENABLED(CONFIG_FASTBOOT_FLASH_MMC)
 	}, {
 		.variable = "partition-type",
-		.dispatch = getvar_partition_type
+		.dispatch = getvar_partition_type,
+		.list = false
 #endif
-#ifdef CONFIG_FASTBOOT_FLASH
+#if IS_ENABLED(CONFIG_FASTBOOT_FLASH)
 	}, {
 		.variable = "partition-size",
-		.dispatch = getvar_partition_size
+		.dispatch = getvar_partition_size,
+		.list = false
 #endif
 	}, {
 		.variable = "is-userspace",
-		.dispatch = getvar_is_userspace
+		.dispatch = getvar_is_userspace,
+		.list = true
 	}
 };
 
-#ifdef CONFIG_FASTBOOT_FLASH
 /**
  * Get partition number and size for any storage type.
  *
@@ -100,41 +103,33 @@ static const struct {
  *
  * @param[in] part_name Info for which partition name to look for
  * @param[in,out] response Pointer to fastboot response buffer
- * @param[out] size If not NULL, will contain partition size (in blocks)
- * @return Partition number or negative value on error
+ * @param[out] size If not NULL, will contain partition size
+ * Return: Partition number or negative value on error
  */
 static int getvar_get_part_info(const char *part_name, char *response,
 				size_t *size)
 {
 	int r;
-#ifdef CONFIG_FASTBOOT_FLASH_MMC
 	struct blk_desc *dev_desc;
-	disk_partition_t part_info;
-
-	r = fastboot_mmc_get_part_info(part_name, &dev_desc, &part_info,
-				       response);
-	if (r >= 0 && size)
-		*size = part_info.size;
-#elif defined(CONFIG_FASTBOOT_FLASH_NAND)
+	struct disk_partition disk_part;
 	struct part_info *part_info;
 
-	r = fastboot_nand_get_part_info(part_name, &part_info, response);
-	if (r >= 0 && size)
-		*size = part_info->size;
-#elif defined(CONFIG_FASTBOOT_FLASH_CUS)
-	struct part_info part_info;
-
-	r = fastboot_cus_get_part_info(part_name, &part_info, response);
-	if (r >= 0 && size)
-		*size = part_info.size;
-# else
-	fastboot_fail("this storage is not supported in bootloader", response);
-	r = -ENODEV;
-# endif
+	if (IS_ENABLED(CONFIG_FASTBOOT_FLASH_MMC)) {
+		r = fastboot_mmc_get_part_info(part_name, &dev_desc, &disk_part,
+					       response);
+		if (r >= 0 && size)
+			*size = disk_part.size * disk_part.blksz;
+	} else if (IS_ENABLED(CONFIG_FASTBOOT_FLASH_NAND)) {
+		r = fastboot_nand_get_part_info(part_name, &part_info, response);
+		if (r >= 0 && size)
+			*size = part_info->size;
+	} else {
+		fastboot_fail("this storage is not supported in bootloader", response);
+		r = -ENODEV;
+	}
 
 	return r;
 }
-#endif
 
 static void getvar_version(char *var_parameter, char *response)
 {
@@ -153,7 +148,7 @@ static void getvar_downloadsize(char *var_parameter, char *response)
 
 static void getvar_serialno(char *var_parameter, char *response)
 {
-	const char *tmp = getenv("serial#");
+	const char *tmp = env_get("serial#");
 
 	if (tmp)
 		fastboot_okay(tmp, response);
@@ -168,7 +163,7 @@ static void getvar_version_baseband(char *var_parameter, char *response)
 
 static void getvar_product(char *var_parameter, char *response)
 {
-	const char *board = getenv("board");
+	const char *board = env_get("board");
 
 	if (board)
 		fastboot_okay(board, response);
@@ -178,7 +173,7 @@ static void getvar_product(char *var_parameter, char *response)
 
 static void getvar_platform(char *var_parameter, char *response)
 {
-	const char *p = getenv("platform");
+	const char *p = env_get("platform");
 
 	if (p)
 		fastboot_okay(p, response);
@@ -192,8 +187,7 @@ static void getvar_current_slot(char *var_parameter, char *response)
 	fastboot_okay("a", response);
 }
 
-#ifdef CONFIG_FASTBOOT_FLASH
-static void getvar_has_slot(char *part_name, char *response)
+static void __maybe_unused getvar_has_slot(char *part_name, char *response)
 {
 	char part_name_wslot[PART_NAME_LEN];
 	size_t len;
@@ -204,7 +198,7 @@ static void getvar_has_slot(char *part_name, char *response)
 
 	/* part_name_wslot = part_name + "_a" */
 	len = strlcpy(part_name_wslot, part_name, PART_NAME_LEN - 3);
-	if (len > PART_NAME_LEN - 3)
+	if (len >= PART_NAME_LEN - 3)
 		goto fail;
 	strcat(part_name_wslot, "_a");
 
@@ -224,29 +218,26 @@ static void getvar_has_slot(char *part_name, char *response)
 fail:
 	fastboot_fail("invalid partition name", response);
 }
-#endif
 
-#ifdef CONFIG_FASTBOOT_FLASH_MMC
-static void getvar_partition_type(char *part_name, char *response)
+static void __maybe_unused getvar_partition_type(char *part_name, char *response)
 {
 	int r;
 	struct blk_desc *dev_desc;
-	disk_partition_t part_info;
+	struct disk_partition part_info;
 
 	r = fastboot_mmc_get_part_info(part_name, &dev_desc, &part_info,
 				       response);
 	if (r >= 0) {
 		r = fs_set_blk_dev_with_part(dev_desc, r);
 		if (r < 0)
-			fastboot_fail("failed to set partition", response);
+			/* If we don't know then just default to raw */
+			fastboot_okay("raw", response);
 		else
 			fastboot_okay(fs_get_type_name(), response);
 	}
 }
-#endif
 
-#ifdef CONFIG_FASTBOOT_FLASH
-static void getvar_partition_size(char *part_name, char *response)
+static void __maybe_unused getvar_partition_size(char *part_name, char *response)
 {
 	int r;
 	size_t size;
@@ -255,11 +246,44 @@ static void getvar_partition_size(char *part_name, char *response)
 	if (r >= 0)
 		fastboot_response("OKAY", response, "0x%016zx", size);
 }
-#endif
 
 static void getvar_is_userspace(char *var_parameter, char *response)
 {
 	fastboot_okay("no", response);
+}
+
+static int current_all_dispatch;
+void fastboot_getvar_all(char *response)
+{
+	/*
+	 * Find a dispatch getvar that can be listed and send
+	 * it as INFO until we reach the end.
+	 */
+	while (current_all_dispatch < ARRAY_SIZE(getvar_dispatch)) {
+		if (!getvar_dispatch[current_all_dispatch].list) {
+			current_all_dispatch++;
+			continue;
+		}
+
+		char envstr[FASTBOOT_RESPONSE_LEN] = { 0 };
+
+		getvar_dispatch[current_all_dispatch].dispatch(NULL, envstr);
+
+		char *envstr_start = envstr;
+
+		if (!strncmp("OKAY", envstr, 4) || !strncmp("FAIL", envstr, 4))
+			envstr_start += 4;
+
+		fastboot_response("INFO", response, "%s: %s",
+				  getvar_dispatch[current_all_dispatch].variable,
+				  envstr_start);
+
+		current_all_dispatch++;
+		return;
+	}
+
+	fastboot_response("OKAY", response, NULL);
+	current_all_dispatch = 0;
 }
 
 /**
@@ -279,6 +303,9 @@ void fastboot_getvar(char *cmd_parameter, char *response)
 {
 	if (!cmd_parameter) {
 		fastboot_fail("missing var", response);
+	} else if (!strncmp("all", cmd_parameter, 3) && strlen(cmd_parameter) == 3) {
+		current_all_dispatch = 0;
+		fastboot_response(FASTBOOT_MULTIRESPONSE_START, response, NULL);
 	} else {
 #define FASTBOOT_ENV_PREFIX	"fastboot."
 		int i;
@@ -288,7 +315,7 @@ void fastboot_getvar(char *cmd_parameter, char *response)
 
 		snprintf(envstr, sizeof(envstr) - 1,
 			 FASTBOOT_ENV_PREFIX "%s", cmd_parameter);
-		s = getenv(envstr);
+		s = env_get(envstr);
 		if (s) {
 			fastboot_response("OKAY", response, "%s", s);
 			return;
@@ -303,7 +330,7 @@ void fastboot_getvar(char *cmd_parameter, char *response)
 				return;
 			}
 		}
-		printf("WARNING: unknown variable: %s\n", cmd_parameter);
+		pr_warn("WARNING: unknown variable: %s\n", cmd_parameter);
 		fastboot_fail("Variable not implemented", response);
 	}
 }
